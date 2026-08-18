@@ -1,0 +1,49 @@
+# Python environments and bytecode
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# Test and tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Local environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.ontograph-skill.json
+
+# Generated ontology graphs and local extraction data
+outputs/
+graph_data.json
+source_inventory.json
+extraction_draft.json
+extraction_report.md
+ontology.ttl
+ontology_inferred.ttl
+graph.graphml
+visualization.html
+insights.md
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~

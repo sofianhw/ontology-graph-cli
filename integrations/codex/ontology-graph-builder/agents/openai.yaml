@@ -1,0 +1,3 @@
+display_name: Ontology Graph Builder
+short_description: Build auditable PRD knowledge graphs with the local ontograph CLI.
+default_prompt: Build an ontology graph from this PRD or answer a question about an existing graph.

@@ -1,0 +1,10 @@
+{
+  "concepts": [],
+  "properties": [],
+  "instances": [
+    {"id": "bob", "label": "Bob", "type": "employee", "attributes": {}}
+  ],
+  "relations": [
+    {"subject": "bob", "predicate": "worksFor", "object": "acme"}
+  ]
+}
