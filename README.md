@@ -31,15 +31,15 @@ No global installation is required. Run every command through `uv run`.
 
 ```sh
 uv run ontograph build-prd \
-  "$HOME/Downloads/[Signed Off] PRD_ OCR-Based Contact Importing.pdf" \
-  outputs/ocr-contact-importing \
-  --base-uri https://example.org/ocr-contact-importing#
+  "$HOME/Downloads/product-requirements-document.pdf" \
+  outputs/product-requirements \
+  --base-uri https://example.org/product-requirements#
 ```
 
 Open the interactive graph when the command completes:
 
 ```sh
-open outputs/ocr-contact-importing/visualization.html
+open outputs/product-requirements/visualization.html
 ```
 
 The command always performs deterministic, template-based extraction. If no LLM
@@ -184,7 +184,7 @@ and their source references, making it the preferred command for agent-skill fol
 questions.
 
 ```sh
-uv run ontograph ask outputs/ocr-contact-importing \
+uv run ontograph ask outputs/product-requirements \
   "Which requirements are not implemented by a user story?"
 ```
 
