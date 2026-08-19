@@ -82,7 +82,11 @@ class _Draft:
         self.feature = self.add(title, "feature", [inventory[0]["id"]])
 
     def add(self, label: str, kind: str, refs: list[str], attributes: dict[str, Any] | None = None) -> str:
-        label = _clean(label); key = (kind, label.casefold())
+        label = _clean(label); identity = label.casefold()
+        if kind in {"user_story", "acceptance_criterion"}:
+            number = re.match(r"(?:US|AC)[-\s]?(\d+[a-z]?)", label, re.I)
+            if number: identity = number.group(1).casefold()
+        key = (kind, identity)
         if key in self.by_key:
             identifier = self.by_key[key]
             existing = next(item for item in self.data["instances"] if item["id"] == identifier)
@@ -110,7 +114,6 @@ def _extract_deterministic(source: str | Path) -> tuple[dict[str, list[dict[str,
         (r"^A\d+\s+", "assumption", "dependsOnAssumption"), (r"^C\d+\s+", "constraint", "governedByConstraint"),
         (r"^NFR[-\s]?\d+", "nfr_requirement", "boundBy"), (r"^US[-\s]?\d+", "user_story", "partOf"),
         (r"^AC[-\s]?\d+", "acceptance_criterion", None), (r"^(?:ocr_|payment_)[a-z0-9_]+$", "analytics_event", "tracksEvent"),
-        (r"^(?:HTTP\s*)?(?:400|401|403|404|422|429|500|503|504)\b", "error_code", None),
     ]
     for item in inventory:
         text, refs = item["text"], [item["id"]]
@@ -180,7 +183,7 @@ def _extract_deterministic(source: str | Path) -> tuple[dict[str, list[dict[str,
             for bank in banks:
                 if bank.casefold() in part:
                     graph.edge(pattern, "supportsBank", graph.add(bank, "bank", refs), refs)
-        if re.match(r"^DE\s*\[?P\d+\]?", text, re.I) or (item.get("category") == "table_row" and re.search(r"\bP[0-3]\b", text)):
+        if re.match(r"^DE\s*\[?P\d+\]?", text, re.I) or (item.get("category") == "table_row" and re.match(r"^(?:Payment|CE|Ops|DE|Marketing)\b.*\bP[0-3]\b", text, re.I)):
             dependency = graph.add(text, "dependency_request", refs); graph.edge(graph.feature, "blockedByDependency", dependency, refs)
             squad_rules = [(r"payment", "Payment Squad"), (r"customer experience|\bCE\b", "Customer Experience (CE)"), (r"snowflake|data engineering|\bDE\b", "Data Engineering (DE)"), (r"\bops\b", "Ops"), (r"marketing", "Marketing")]
             for regex, label in squad_rules:
