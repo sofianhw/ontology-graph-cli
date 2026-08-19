@@ -299,5 +299,7 @@ repository, omit `--global`.
 The skill needs `uv`, but a separate CLI installation is optional. It uses a configured
 or local CLI checkout when available, then an `ontograph` command already on your
 machine, and otherwise runs the published CLI with `uvx` (which caches it locally).
-For graph follow-up questions, it queries the generated `graph_data.json` and shows the
-result directly. It writes a `.rq` query file only when you explicitly request one.
+For graph follow-up questions, it directly filters the generated `graph_data.json` and
+shows the result in the conversation. The CLI's `ask` command remains available for
+terminal users, but the skill does not use it. It writes a reproducible query file only
+when you explicitly request one.

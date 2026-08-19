@@ -47,33 +47,31 @@ change.
 
 ## Answer questions about an existing graph
 
-For every follow-up question, use `ask` first. It reads only the built
-`graph_data.json` and returns compact answer context; it does not reopen the PDF,
-source inventory, or full ontology:
+For every follow-up question, query only `<output_dir>/graph_data.json`. Do not reopen
+the PDF, source inventory, reports, or full ontology unless the user asks to audit the
+source. Use a small, read-only local JSON filter (with Python or `jq`) that emits only
+the matching entities, relationships, and evidence needed to answer the question.
+Do not use `ontograph ask`; that command is a standalone CLI convenience, not part of
+the skill workflow.
 
-```sh
-<ontograph-command> ask <output_dir> '<question>'
-```
+The graph contract is deliberately small:
 
-Read the command result and answer the user's question directly in the conversation.
-Show the matching entities, any useful source references, and whether the answer uses
-asserted or candidate links. Do not merely give the user a command or a `.rq` file to
-run, and do not reopen the PRD to answer a graph-backed question.
+- `instances` contains each entity's `id`, `label`, `type`, attributes, and source
+  references.
+- `relations` contains `subject`, `predicate`, `object`, `assertion`, confidence,
+  rationale, and source references.
 
-Only when `ask` returns `unsupported_question`, translate the question into an
-appropriate local `neighbors`, `path`, `centrality`, or read-only SPARQL query, run
-it, and present its result:
+Create an ID-to-entity lookup, translate the user's wording into entity types and
+predicates, and filter relations before loading their labels. For example, to find
+requirements not implemented by user stories, select requirement-type instances whose
+ID is not the object of an `implements` relation with a `user_story` subject. Keep the
+query result compact, then answer the user directly with the matching labels, source
+references, and whether supporting links are asserted or candidate. Explain an empty
+or missing link as a graph traceability gap, not proof that the PRD omits the work.
 
-```sh
-<ontograph-command> query <output_dir> sparql '<query>'
-```
-
-For a natural-language question, translate it to a read-only query against the local
-graph; do not send graph content to an external service merely to answer it. Save a
-SPARQL query under `<output_dir>/queries/` only when the user explicitly asks for a
-reproducible query file. State whether an answer relies on asserted edges, candidate
-edges, or missing traceability. Use your own reasoning to explain likely gaps; do not
-send graph content to a second LLM service.
+Never merely give the user a command or a `.rq` file to run. Save a reproducible query
+file only if the user explicitly requests it. Do not send graph content to an external
+service merely to answer a graph-backed question.
 
 ## Other CLI modes
 
