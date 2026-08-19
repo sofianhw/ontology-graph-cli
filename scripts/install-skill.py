@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import sys
@@ -23,15 +22,12 @@ def adapter_root(target: str, repository_root: Path) -> Path:
     return repository_root / "integrations" / target / SKILL_NAME
 
 
-def install(target: str, project_root: Path, destination: Path | None = None, force: bool = False, dry_run: bool = False, repository_root: Path = REPOSITORY_ROOT) -> Path:
+def install(target: str, project_root: Path = REPOSITORY_ROOT, destination: Path | None = None, force: bool = False, dry_run: bool = False, repository_root: Path = REPOSITORY_ROOT) -> Path:
     if target not in TARGETS:
         raise ValueError(f"Unsupported target '{target}'. Choose: {', '.join(TARGETS)}")
     source = adapter_root(target, repository_root)
     if not source.is_dir() or not (source / "SKILL.md").is_file():
         raise FileNotFoundError(f"Adapter is missing: {source}")
-    project_root = project_root.expanduser().resolve()
-    if not (project_root / "pyproject.toml").is_file():
-        raise ValueError(f"Project root is not an Ontology Graph CLI project: {project_root}")
     destination = (destination or TARGETS[target]()).expanduser()
     if destination.exists() and not force:
         raise FileExistsError(f"Destination exists: {destination}. Use --force to replace it.")
@@ -42,7 +38,6 @@ def install(target: str, project_root: Path, destination: Path | None = None, fo
         shutil.rmtree(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination)
-    (destination / ".ontograph-skill.json").write_text(json.dumps({"schema_version": 1, "project_root": str(project_root)}, indent=2) + "\n", encoding="utf-8")
     print(f"Installed {target} skill at {destination}")
     return destination
 

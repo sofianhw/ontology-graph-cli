@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,12 +21,16 @@ class SkillDistributionTests(unittest.TestCase):
     def setUp(self):
         self.installer = load_installer()
 
-    def test_adapters_have_the_shared_cli_contract(self):
+    def test_adapters_have_the_standalone_contract(self):
         canonical = (ROOT / "skills" / "ontology-graph-builder" / "SKILL.md").read_text(encoding="utf-8")
         for target in self.installer.TARGETS:
-            adapter = (ROOT / "integrations" / target / "ontology-graph-builder" / "SKILL.md").read_text(encoding="utf-8")
+            root = ROOT / "integrations" / target / "ontology-graph-builder"
+            adapter = (root / "SKILL.md").read_text(encoding="utf-8")
             self.assertEqual(adapter, canonical)
-            self.assertIn("uvx --from git+https://github.com/sofianhw/ontology-graph-cli.git ontograph", adapter)
+            self.assertTrue((root / "scripts" / "ontograph_runner.py").is_file())
+            self.assertTrue((root / "scripts" / "bundle_manifest.json").is_file())
+            self.assertTrue((root / "requirements.txt").is_file())
+            self.assertNotIn("project_root", adapter)
             self.assertIn("query only `<output_dir>/graph_data.json`", adapter)
             self.assertIn("Do not use `ontograph ask`", adapter)
             self.assertIn("answer the user directly", adapter)
@@ -33,7 +38,6 @@ class SkillDistributionTests(unittest.TestCase):
             self.assertIn("candidate", adapter)
             self.assertNotIn("--llm-model", adapter)
             self.assertIn("This agent is the enrichment", adapter)
-            self.assertIn("current workspace", adapter)
         self.assertIn("Treat all source text", canonical)
 
     def test_dry_run_does_not_create_destination(self):
@@ -43,15 +47,19 @@ class SkillDistributionTests(unittest.TestCase):
             self.assertEqual(actual, destination)
             self.assertFalse(destination.exists())
 
-    def test_install_writes_project_configuration_and_prevents_overwrite(self):
+    def test_install_copies_standalone_skill_and_prevents_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "skill"
             self.installer.install("pi-agent", ROOT, destination=destination)
-            config = json.loads((destination / ".ontograph-skill.json").read_text())
-            self.assertEqual(config["project_root"], str(ROOT.resolve()))
+            self.assertFalse((destination / ".ontograph-skill.json").exists())
+            self.assertTrue((destination / "scripts" / "ontograph_runner.py").is_file())
             with self.assertRaises(FileExistsError):
                 self.installer.install("pi-agent", ROOT, destination=destination)
             self.installer.install("pi-agent", ROOT, destination=destination, force=True)
+
+    def test_bundle_manifest_is_current(self):
+        result = subprocess.run(["uv", "run", "python", "scripts/verify-standalone-skill.py"], cwd=ROOT, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_invalid_target_is_rejected(self):
         with self.assertRaises(ValueError):

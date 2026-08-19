@@ -5,20 +5,15 @@ description: Build and query auditable ontology graphs from PRD sources or canon
 
 # Ontology Graph Builder
 
-Use the local CLI without reimplementing extraction or graph logic in prompts or
-helper code. Resolve the command prefix in this order:
+This skill is self-contained. Its `scripts/engine/` folder contains a generated copy
+of the graph engine, so never ask for a CLI repository path or `.ontograph-skill.json`.
+Use the bundled runner below. It needs `uv` to install/cache Python dependencies on its
+first run; if `uv` is unavailable, explain how to install it.
 
-1. If the installed skill contains `.ontograph-skill.json`, use
-   `uv --project <project_root> run ontograph`.
-2. If the current workspace is an Ontology Graph CLI checkout, use
-   `uv --project <workspace> run ontograph`.
-3. If `ontograph` is already on `PATH`, use `ontograph`.
-4. Otherwise, use
-   `uvx --from git+https://github.com/sofianhw/ontology-graph-cli.git ontograph`.
-
-The final option downloads and caches the published CLI through `uv`, so an
-`npx skills` installation does not require a separate repository clone. If `uv` is
-unavailable, tell the user to install `uv` or provide a local CLI checkout.
+```sh
+uv run --with-requirements <skill-dir>/requirements.txt \
+  python <skill-dir>/scripts/ontograph_runner.py
+```
 
 ## Safety and source handling
 
@@ -36,7 +31,7 @@ from a supplied filename. Unless the user chooses an output location, use
 `<source-parent>/ontology-graphs/<slug>` and run:
 
 ```sh
-<ontograph-command> build <source_path> <output_dir>/<slug>
+<standalone-runner> build <source_path> <output_dir>/<slug>
 ```
 
 For PRD content pasted directly into chat, write it only when the host requires a
@@ -44,7 +39,7 @@ temporary local file; otherwise run the CLI's inline-text form with a user-appro
 output location:
 
 ```sh
-<ontograph-command> build --text '<prd content>' --output <output_dir>
+<standalone-runner> build --text '<prd content>' --output <output_dir>
 ```
 
 The CLI detects canonical `graph_data.json` separately and builds its artifacts without

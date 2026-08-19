@@ -240,11 +240,15 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## Use from Codex, Claude Cowork, or pi-agent
 
-The repository has two deliverables: the `ontograph` CLI is the graph engine, while
-the agent skills are lightweight instructions that invoke that same local CLI. They
-never contain a second copy of the extraction or ontology code. Agent skills use the
-host agent's own reasoning to review gaps and candidate links; they do not invoke the
-CLI's external LLM-enrichment API.
+The repository has two deliverables with the same deterministic graph capability:
+
+- **CLI distribution:** `uv run ontograph ...` for developers and terminal users.
+- **Standalone skill distribution:** `npx skills` installs a bundled Python runner,
+  graph engine, and dependency list. It needs `uv` on first use, but never needs this
+  repository path or a local CLI checkout.
+
+The standalone engine is generated from the CLI modules. Contributors edit the CLI,
+then rebuild the skill bundle; see [AGENTS.md](AGENTS.md).
 
 Install one adapter from the repository root. The examples below use the platform's
 default skill location; use `--destination <path>` to select a project-specific one.
@@ -260,16 +264,15 @@ uv run python scripts/install-skill.py --target claude-cowork
 uv run python scripts/install-skill.py --target pi-agent
 ```
 
-Each installed adapter records this repository's absolute path in a local
-`.ontograph-skill.json` file, so the agent consistently runs
-`uv --project <repository> run ontograph ...`. To preview an installation without
-changing files, add `--dry-run`. Existing installations are protected; pass
-`--force` only when deliberately replacing one.
+Each installed adapter contains its own runner and dependencies. To preview an
+installation without changing files, add `--dry-run`. Existing installations are
+protected; pass `--force` only when deliberately replacing one.
 
 After pulling an updated repository version, refresh the adapter:
 
 ```sh
 git pull
+uv run python scripts/build-standalone-skill.py
 uv run python scripts/build-skill-adapters.py
 uv run python scripts/install-skill.py --target codex --force
 ```
@@ -296,9 +299,9 @@ npx skills add sofianhw/ontology-graph-cli \
 `pi` is the `npx skills` target name for pi-agent. To install only for the current
 repository, omit `--global`.
 
-The skill needs `uv`, but a separate CLI installation is optional. It uses a configured
-or local CLI checkout when available, then an `ontograph` command already on your
-machine, and otherwise runs the published CLI with `uvx` (which caches it locally).
+The skill needs `uv`. On its first graph build, `uv` downloads and caches the bundled
+runner's Python dependencies; later builds reuse that cache. It does not download this
+repository or require a `.ontograph-skill.json` configuration file.
 For graph follow-up questions, it directly filters the generated `graph_data.json` and
 shows the result in the conversation. The CLI's `ask` command remains available for
 terminal users, but the skill does not use it. It writes a reproducible query file only
