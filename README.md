@@ -1,11 +1,11 @@
 # Ontology Graph CLI
 
-`ontograph` turns structured graph data and Product Requirements Document (PRD)
-PDFs into a queryable RDF/OWL/SKOS ontology, a GraphML property graph, an
+`ontograph` turns structured graph data and Product Requirements Documents (PRDs)
+from PDF, DOCX, Markdown, text files, or inline text into a queryable RDF/OWL/SKOS ontology, a GraphML property graph, an
 interactive HTML visualization, and an insight report.
 
 The PRD workflow is designed for repeatable product documentation: it inventories
-source text by page and line, maps known PRD sections into a stable ontology, and
+source text with stable format-specific locations, maps known PRD sections into a stable ontology, and
 optionally uses an OpenAI-compatible model to add supported cross-links and clearly
 marked candidate relationships.
 
@@ -13,8 +13,9 @@ marked candidate relationships.
 
 - Python 3.9 or later
 - [uv](https://docs.astral.sh/uv/)
-- For PDF workflows, an extractable text layer in the PDF. Scanned PDFs must be OCRed
-  before use.
+- Supported PRD sources: PDF, DOCX, Markdown, text files, and inline text.
+- PDFs need an extractable text layer. Scanned PDFs must be OCRed before use.
+- Legacy `.doc` files must be converted to `.docx` before use.
 
 ## Installation
 
@@ -27,10 +28,10 @@ uv run ontograph --help
 
 No global installation is required. Run every command through `uv run`.
 
-## Quick start: build a graph from a PRD PDF
+## Quick start: build a graph from a PRD source
 
 ```sh
-uv run ontograph build-prd \
+uv run ontograph build \
   "$HOME/Downloads/product-requirements-document.pdf" \
   outputs/product-requirements \
   --base-uri https://example.org/product-requirements#
@@ -46,12 +47,22 @@ The command always performs deterministic, template-based extraction. If no LLM
 configuration is supplied, it completes normally and records that enrichment was
 skipped in `extraction_report.md`.
 
-## PRD PDF workflow
+## PRD source workflow
 
-`build-prd` is the end-to-end command:
+`build` automatically detects canonical graph JSON versus a supported PRD source:
 
 ```text
-PDF → source inventory → template extraction → optional LLM enrichment → ontology outputs
+PDF / DOCX / Markdown / text / inline text → source inventory → template extraction → optional LLM enrichment → ontology outputs
+```
+
+```sh
+# DOCX, Markdown, or text file
+uv run ontograph build requirements.docx outputs/requirements
+uv run ontograph build requirements.md outputs/requirements
+uv run ontograph build requirements.txt outputs/requirements
+
+# Pasted text
+uv run ontograph build --text "PRD: Example" --output outputs/example
 ```
 
 It recognizes standard PRD material when present, including document metadata,
@@ -60,17 +71,17 @@ user stories, acceptance criteria, metrics, events, security controls, rollout,
 rate limiting, architecture, and AI-model decisions.
 
 Every extracted entity and relationship has `source_refs` that point to stable IDs in
-the inventory, such as `p14_l7` for page 14, line 7.
+the inventory, such as a PDF page/line, DOCX table row, Markdown line, or text paragraph.
 
 ### Output directory
 
-`build-prd` writes these files to the selected output directory:
+Source builds write these files to the selected output directory:
 
 | File | Purpose |
 | --- | --- |
 | `graph_data.json` | Canonical v1 graph data used to build the graph. |
 | `extraction_draft.json` | The pre-build extraction snapshot for audit or comparison. |
-| `source_inventory.json` | Every extractable source line, with page and line location. |
+| `source_inventory.json` | Every extractable source item, with stable format-specific location. |
 | `extraction_report.md` | Coverage, entity/predicate counts, candidates, and extraction notes. |
 | `ontology.ttl` | Asserted RDF/OWL/SKOS ontology. |
 | `ontology_inferred.ttl` | Ontology after OWL-RL inference, when available. |
@@ -88,7 +99,7 @@ explicitly treated as data rather than instructions.
 ```sh
 export OPENAI_API_KEY="..."
 
-uv run ontograph build-prd document.pdf outputs/prd \
+uv run ontograph build document.pdf outputs/prd \
   --llm-model gpt-4.1-mini
 ```
 
@@ -98,7 +109,7 @@ For a compatible internal gateway or another provider:
 export OPENAI_API_KEY="..."
 export OPENAI_BASE_URL="https://gateway.example.com/v1"
 
-uv run ontograph build-prd document.pdf outputs/prd \
+uv run ontograph build document.pdf outputs/prd \
   --llm-model your-model-name
 ```
 
@@ -118,7 +129,7 @@ them as facts.
 
 ## Build from canonical JSON
 
-Use `build` when you already have graph data:
+When the input is canonical graph JSON, `build` keeps its original build-only behavior:
 
 ```sh
 uv run ontograph validate graph_data.json
@@ -178,10 +189,9 @@ The available centrality kinds are `degree`, `betweenness`, and `closeness`.
 ### Ask graph-first questions with minimal context
 
 `ask` answers supported PRD traceability questions from the built `graph_data.json`.
-It never reopens the PDF, reads the full source inventory, or calls an external model.
+It never reopens the original source, reads the full source inventory, or calls an external model.
 Its compact JSON response contains only the matching graph entities, relationships,
-and their source references, making it the preferred command for agent-skill follow-up
-questions.
+and their source references. Agent skills query `graph_data.json` directly instead.
 
 ```sh
 uv run ontograph ask outputs/product-requirements \
@@ -194,11 +204,11 @@ read-only SPARQL query instead.
 
 ## Extract a PRD draft without building
 
-Use `extract-prd` when you want to inspect or edit the deterministic draft before
+Use `extract` when you want to inspect or edit the deterministic draft before
 creating ontology artifacts:
 
 ```sh
-uv run ontograph extract-prd document.pdf graph_data.json
+uv run ontograph extract document.docx graph_data.json
 uv run ontograph validate graph_data.json
 uv run ontograph build graph_data.json outputs/prd
 ```
@@ -219,7 +229,8 @@ in the prior graph.
 
 | Problem | Resolution |
 | --- | --- |
-| `PDF has no extractable text` | OCR the scanned PDF, then rerun `build-prd`. |
+| `PDF has no extractable text` | OCR the scanned PDF, then rerun `build`. |
+| `Legacy .doc files are not supported` | Convert the document to `.docx`, then rerun `build`. |
 | LLM enrichment is skipped | Set `OPENAI_API_KEY` and pass `--llm-model`; the graph still builds without it. |
 | Validation fails | Check duplicate IDs and ensure each relation refers to declared concepts, properties, or instances. |
 | HTML view says `pyvis` is missing | Run `uv sync --extra full`. |
