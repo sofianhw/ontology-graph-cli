@@ -28,6 +28,10 @@ htmlcov/
 *.key
 .ontograph-skill.json
 
+# Project-local agent skill installations
+.agents/
+skills-lock.json
+
 # Generated ontology graphs and local extraction data
 outputs/
 graph_data.json
