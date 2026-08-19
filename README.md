@@ -281,11 +281,10 @@ Generated platform packages live under `integrations/`.
 
 After publishing this repository to GitHub, the open
 [`skills`](https://github.com/vercel-labs/skills) installer can install the canonical
-skill directly. Replace `YOUR_GITHUB_USERNAME/ontology-graph-cli` with your published
-repository.
+skill directly from this published repository.
 
 ```sh
-npx skills add YOUR_GITHUB_USERNAME/ontology-graph-cli \
+npx skills add sofianhw/ontology-graph-cli \
   --skill ontology-graph-builder \
   --global \
   --agent codex \
