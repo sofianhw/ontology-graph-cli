@@ -84,18 +84,48 @@ def _ask(output_dir: str, question: str, limit: int) -> dict:
     return {"question": question, "answer_type": "unsupported_question", "results": [], "scope": scope, "guidance": "Use `ontograph query` with neighbors, path, centrality, or a read-only SPARQL query. The graph was not expanded and no PDF content was loaded."}
 
 
+def _write_source_build(source: str, output_dir: str, model: str | None, base_url: str | None, inline_text: str | None = None, base_uri: str = "http://example.org/kg#") -> tuple[int, int, int]:
+    data, inventory, notes = build_prd(source, model, base_url, inline_text)
+    output = Path(output_dir); output.mkdir(parents=True, exist_ok=True)
+    draft = output / "extraction_draft.json"; draft.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    (output / "source_inventory.json").write_text(json.dumps(inventory, indent=2), encoding="utf-8")
+    (output / "extraction_report.md").write_text(prd_report(data, inventory, notes), encoding="utf-8")
+    return build(draft, output, base_uri)
+
+
+def _canonical_json(path: str) -> bool:
+    if Path(path).suffix.casefold() != ".json": return False
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError): return False
+    return isinstance(raw, dict) and {"concepts", "properties", "instances", "relations"} <= set(raw)
+
+
+def _source_values(args: argparse.Namespace) -> tuple[str, str, str | None]:
+    if args.text is not None:
+        if args.input: raise ValueError("Use either an input file or --text, not both.")
+        if not args.output: raise ValueError("Inline text requires --output <output_dir>.")
+        return "inline-text", args.output, args.text
+    if not args.input: raise ValueError("Provide an input file or --text.")
+    output = args.output or args.output_dir
+    if not output: raise ValueError("Provide an output directory.")
+    return args.input, output, None
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="ontograph", description="Build, inspect, query, and merge ontology graphs.")
     commands = result.add_subparsers(dest="command", required=True)
     validate = commands.add_parser("validate", help="validate canonical graph JSON"); validate.add_argument("data")
     extract = commands.add_parser("extract-prd", help="extract a review draft from a PRD PDF")
     extract.add_argument("pdf_path"); extract.add_argument("output", help="draft graph_data.json path")
+    generic_extract = commands.add_parser("extract", help="extract a review draft from a supported PRD source")
+    generic_extract.add_argument("input", nargs="?"); generic_extract.add_argument("output_path", nargs="?"); generic_extract.add_argument("--text"); generic_extract.add_argument("--output")
     build_prd_p = commands.add_parser("build-prd", help="extract, enrich, and build all graph artifacts from a PRD PDF")
     build_prd_p.add_argument("pdf_path"); build_prd_p.add_argument("output_dir")
     build_prd_p.add_argument("--base-uri", default="http://example.org/kg#")
     build_prd_p.add_argument("--llm-model", help="OpenAI-compatible model for optional semantic enrichment")
     build_prd_p.add_argument("--llm-base-url", help="OpenAI-compatible API base URL; defaults to OPENAI_BASE_URL or OpenAI")
-    build_p = commands.add_parser("build", help="build all graph artifacts"); build_p.add_argument("data"); build_p.add_argument("output_dir"); build_p.add_argument("--base-uri", default="http://example.org/kg#")
+    build_p = commands.add_parser("build", help="build graph artifacts from canonical JSON or a supported PRD source"); build_p.add_argument("input", nargs="?"); build_p.add_argument("output_dir", nargs="?"); build_p.add_argument("--text"); build_p.add_argument("--output"); build_p.add_argument("--base-uri", default="http://example.org/kg#"); build_p.add_argument("--llm-model"); build_p.add_argument("--llm-base-url")
     merge_p = commands.add_parser("merge", help="merge new graph JSON into prior output"); merge_p.add_argument("existing_dir"); merge_p.add_argument("data"); merge_p.add_argument("output_dir"); merge_p.add_argument("--base-uri", default="http://example.org/kg#")
     query = commands.add_parser("query", help="query a built output directory"); query.add_argument("output_dir")
     operations = query.add_subparsers(dest="operation", required=True)
@@ -121,17 +151,28 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Proposed vocabulary: {len(data['concepts'])} classes, {len(data['properties'])} properties")
             print(f"Extracted: {len(data['instances'])} instances, {len(data['relations'])} relations")
             print("Review this draft before running 'ontograph build'.")
+        elif args.command == "extract":
+            if args.text is not None:
+                if args.input or not args.output: raise ValueError("Use `extract --text <content> --output <graph_data.json>`.")
+                source, destination, inline = "inline-text", args.output, args.text
+            else:
+                if not args.input or not args.output_path: raise ValueError("Use `extract <input> <graph_data.json>`.")
+                source, destination, inline = args.input, args.output_path, None
+            data = extract_prd(source, inline); validate_data(data)
+            target = Path(destination); target.parent.mkdir(parents=True, exist_ok=True); target.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            print(f"Created review draft: {target}")
         elif args.command == "build-prd":
-            data, inventory, notes = build_prd(args.pdf_path, args.llm_model, args.llm_base_url)
-            output = Path(args.output_dir); output.mkdir(parents=True, exist_ok=True)
-            draft = output / "extraction_draft.json"; draft.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            (output / "source_inventory.json").write_text(json.dumps(inventory, indent=2), encoding="utf-8")
-            (output / "extraction_report.md").write_text(prd_report(data, inventory, notes), encoding="utf-8")
-            nodes, edges, inferred = build(draft, output, args.base_uri)
+            nodes, edges, inferred = _write_source_build(args.pdf_path, args.output_dir, args.llm_model, args.llm_base_url, base_uri=args.base_uri)
             print(f"Built PRD graph: {nodes} nodes, {edges} edges ({inferred} inferred RDF triples)")
-            print(f"Audit outputs written to {output}")
+            print(f"Audit outputs written to {args.output_dir}")
         elif args.command == "build":
-            nodes, edges, inferred = build(args.data, args.output_dir, args.base_uri); print(f"Built graph: {nodes} nodes, {edges} edges ({inferred} inferred RDF triples)")
+            source, output, inline = _source_values(args)
+            if inline is None and _canonical_json(source):
+                nodes, edges, inferred = build(source, output, args.base_uri); print(f"Built graph: {nodes} nodes, {edges} edges ({inferred} inferred RDF triples)")
+            else:
+                nodes, edges, inferred = _write_source_build(source, output, args.llm_model, args.llm_base_url, inline, args.base_uri)
+                print(f"Built PRD graph: {nodes} nodes, {edges} edges ({inferred} inferred RDF triples)")
+                print(f"Audit outputs written to {output}")
         elif args.command == "merge":
             merged = merge(args.existing_dir, args.data); temp = Path(args.output_dir) / "_merged_graph_data.json"; temp.parent.mkdir(parents=True, exist_ok=True); temp.write_text(json.dumps(merged, indent=2), encoding="utf-8")
             nodes, edges, inferred = build(temp, args.output_dir, args.base_uri); temp.unlink(missing_ok=True); print(f"Merged and built graph: {nodes} nodes, {edges} edges ({inferred} inferred RDF triples)")

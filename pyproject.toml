@@ -9,7 +9,7 @@ description = "Build, inspect, query, and merge RDF/OWL/SKOS knowledge graphs"
 requires-python = ">=3.9"
 license = "MIT"
 classifiers = ["Programming Language :: Python :: 3"]
-dependencies = ["rdflib>=6.0", "networkx>=3.0", "pypdf>=4.0", "pdfplumber>=0.11"]
+dependencies = ["rdflib>=6.0", "networkx>=3.0", "pypdf>=4.0", "pdfplumber>=0.11", "python-docx>=1.1"]
 
 [project.optional-dependencies]
 inference = ["owlrl>=6.0"]

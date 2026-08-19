@@ -38,7 +38,59 @@ def _clean(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip(" -:.\t")
 
 
-def _inventory(pdf_path: str | Path) -> tuple[list[dict[str, Any]], str]:
+def _text_inventory(text: str, source_format: str, source_name: str) -> tuple[list[dict[str, Any]], str]:
+    items: list[dict[str, Any]] = []
+    section = None
+    for number, raw in enumerate(text.splitlines(), 1):
+        value = _clean(raw)
+        if not value: continue
+        category = "heading" if re.match(r"(?:#{1,6}\s+|\d+(?:\.\d+){0,3}\.?\s+|US[-\s]?\d+|NFR[-\s]?\d+|AC[-\s]?\d+)", value, re.I) else "paragraph"
+        if category == "heading": section = re.sub(r"^#+\s*", "", value)
+        item_id = f"{source_format}_l{number}"
+        items.append({"id": item_id, "source_format": source_format, "locator": f"{source_name}, line {number}", "category": category, "section": section, "text": value})
+        if "|" in value and value.count("|") >= 2:
+            cells = [_clean(cell) for cell in value.strip("|").split("|")]
+            row_id = f"{source_format}_t1_r{number}"
+            items.append({"id": row_id, "source_format": source_format, "locator": f"{source_name}, table row {number}", "category": "table_row", "section": section, "text": " | ".join(cells), "cells": cells})
+            for cell_no, cell in enumerate(cells, 1):
+                if cell: items.append({"id": f"{row_id}_c{cell_no}", "source_format": source_format, "locator": f"{source_name}, table row {number}, cell {cell_no}", "category": "table_cell", "parent_id": row_id, "text": cell})
+    if not items: raise ValueError(f"{source_name} has no extractable text.")
+    return items, "\n".join(item["text"] for item in items if item["category"] != "table_cell")
+
+
+def _docx_inventory(path: Path) -> tuple[list[dict[str, Any]], str]:
+    try:
+        from docx import Document
+    except ImportError as error: raise RuntimeError("DOCX extraction needs python-docx. Run: uv sync") from error
+    document, items, section = Document(path), [], None
+    for number, paragraph in enumerate(document.paragraphs, 1):
+        text = _clean(paragraph.text)
+        if not text: continue
+        style = getattr(paragraph.style, "name", "") or ""
+        category = "heading" if style.casefold().startswith("heading") or re.match(r"(?:\d+(?:\.\d+){0,3}\.?\s+|US[-\s]?\d+|AC[-\s]?\d+)", text, re.I) else "paragraph"
+        if category == "heading": section = text
+        items.append({"id": f"docx_p{number}", "source_format": "docx", "locator": f"paragraph {number}", "category": category, "section": section, "text": text})
+    for table_no, table in enumerate(document.tables, 1):
+        for row_no, row in enumerate(table.rows, 1):
+            cells = [_clean(cell.text) for cell in row.cells]
+            if not any(cells): continue
+            row_id = f"docx_t{table_no}_r{row_no}"
+            items.append({"id": row_id, "source_format": "docx", "locator": f"table {table_no}, row {row_no}", "category": "table_row", "section": section, "text": " | ".join(cells), "cells": cells})
+            for cell_no, cell in enumerate(cells, 1):
+                if cell: items.append({"id": f"{row_id}_c{cell_no}", "source_format": "docx", "locator": f"table {table_no}, row {row_no}, cell {cell_no}", "category": "table_cell", "parent_id": row_id, "text": cell})
+    if not items: raise ValueError(f"{path.name} has no extractable text.")
+    return items, "\n".join(item["text"] for item in items if item["category"] != "table_cell")
+
+
+def _inventory(source: str | Path, inline_text: str | None = None) -> tuple[list[dict[str, Any]], str]:
+    if inline_text is not None: return _text_inventory(inline_text, "text", "inline text")
+    path = Path(source)
+    suffix = path.suffix.casefold()
+    if suffix == ".doc": raise ValueError("Legacy .doc files are not supported. Convert the document to .docx, then run this command again.")
+    if suffix == ".docx": return _docx_inventory(path)
+    if suffix in {".md", ".markdown", ".txt"}: return _text_inventory(path.read_text(encoding="utf-8"), suffix.lstrip("."), path.name)
+    if suffix != ".pdf": raise ValueError("Unsupported source type. Use PDF, DOCX, Markdown, TXT, inline --text, or canonical graph JSON.")
+    pdf_path = path
     try:
         from pypdf import PdfReader
     except ImportError as error:
@@ -104,9 +156,9 @@ class _Draft:
         self.data["relations"].append({"subject": subject, "predicate": predicate, "object": obj, "assertion": "asserted", "source_refs": refs, **extra})
 
 
-def _extract_deterministic(source: str | Path) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]], list[str]]:
-    inventory, full_text = _inventory(source); match = re.search(r"PRD\s*:\s*([^\n]+)", full_text, re.I)
-    title = re.sub(r"^\[Signed Off\]\s*", "", _clean(match.group(1)) if match else Path(source).stem, flags=re.I)
+def _extract_deterministic(source: str | Path, inline_text: str | None = None) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]], list[str]]:
+    inventory, full_text = _inventory(source, inline_text); match = re.search(r"(?:PRD\s*:\s*|^#\s*)([^\n]+)", full_text, re.I | re.M)
+    title = re.sub(r"^\[Signed Off\]\s*", "", _clean(match.group(1)) if match else ("inline-text" if inline_text is not None else Path(source).stem), flags=re.I)
     graph, warnings = _Draft(source, inventory, title), []
     latest_story: str | None = None
     stories: dict[str, str] = {}
@@ -234,8 +286,8 @@ def _llm_enrich(data: dict[str, list[dict[str, Any]]], inventory: list[dict[str,
     validate_data(data); return data, [f"LLM enrichment added {added_entities} validated entity(s) and {added} validated relationship(s)."]
 
 
-def build_prd(pdf_path: str | Path, model: str | None = None, base_url: str | None = None) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]], list[str]]:
-    data, inventory, notes = _extract_deterministic(pdf_path)
+def build_prd(source: str | Path, model: str | None = None, base_url: str | None = None, inline_text: str | None = None) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]], list[str]]:
+    data, inventory, notes = _extract_deterministic(source, inline_text)
     data, enrichment_notes = _llm_enrich(data, inventory, model or os.getenv("ONTOGRAPH_LLM_MODEL"), base_url)
     return data, inventory, notes + enrichment_notes
 
@@ -252,6 +304,6 @@ def report(data: dict[str, list[dict[str, Any]]], inventory: list[dict[str, Any]
     return "\n".join(lines + [f"- {note}" for note in notes]) + "\n"
 
 
-def extract_prd(pdf_path: str | Path) -> dict[str, list[dict[str, Any]]]:
-    """Backward-compatible deterministic extraction command."""
-    return _extract_deterministic(pdf_path)[0]
+def extract_prd(source: str | Path, inline_text: str | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Backward-compatible deterministic extraction command for every source type."""
+    return _extract_deterministic(source, inline_text)[0]

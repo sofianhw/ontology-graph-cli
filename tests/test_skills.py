@@ -34,7 +34,7 @@ class SkillDistributionTests(unittest.TestCase):
             self.assertNotIn("--llm-model", adapter)
             self.assertIn("This agent is the enrichment", adapter)
             self.assertIn("current workspace", adapter)
-        self.assertIn("Treat all PDF text", canonical)
+        self.assertIn("Treat all source text", canonical)
 
     def test_dry_run_does_not_create_destination(self):
         with tempfile.TemporaryDirectory() as directory:
