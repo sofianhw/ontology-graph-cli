@@ -8,7 +8,7 @@ import networkx as nx
 
 from ontology_graph_cli.core import build, validate_data
 from ontology_graph_cli import prd
-from ontology_graph_cli.cli import _ask
+from ontology_graph_cli.cli import _ask, _ask_with_llm
 
 
 INVENTORY = [
@@ -93,6 +93,25 @@ class PrdExtractionTests(unittest.TestCase):
         self.assertEqual(result["answer_type"], "unimplemented_requirements")
         self.assertEqual(result["total_matches"], 1)
         self.assertEqual(result["results"][0]["label"], "R2")
+
+    def test_ask_with_llm_uses_compact_graph_evidence_only(self):
+        data = {"concepts": [{"id": "requirement", "label": "Requirement", "kind": "class", "broader": None}, {"id": "user_story", "label": "User Story", "kind": "class", "broader": None}], "properties": [{"id": "implements", "label": "implements", "kind": "object", "domain": "user_story", "range": "requirement"}], "instances": [{"id": "r1", "label": "R1", "type": "requirement", "attributes": {"source_refs": ["p1_l1"]}}, {"id": "r2", "label": "R2", "type": "requirement", "attributes": {"source_refs": ["p1_l2"]}}, {"id": "story", "label": "US-01", "type": "user_story", "attributes": {"source_refs": ["p2_l1"]}}], "relations": [{"subject": "story", "predicate": "implements", "object": "r1", "source_refs": ["p2_l1"]}]}
+        response = MagicMock(); response.read.return_value = json.dumps({"choices": [{"message": {"content": "R2 has no asserted implementation link."}}]}).encode(); response.__enter__.return_value = response
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory); (output / "graph_data.json").write_text(json.dumps(data))
+            with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}, clear=True), patch("ontology_graph_cli.cli.urllib.request.urlopen", return_value=response) as urlopen:
+                result = _ask_with_llm(str(output), "Which requirements are not implemented by a user story?", 25, "test-model", "https://example.test/v1")
+        request_body = json.loads(urlopen.call_args.args[0].data)
+        evidence = json.loads(request_body["messages"][1]["content"])["graph_evidence"]
+        self.assertEqual(result["answer"], "R2 has no asserted implementation link.")
+        self.assertEqual(evidence["answer_type"], "unimplemented_requirements")
+        self.assertNotIn("source_inventory", request_body["messages"][1]["content"])
+
+    def test_ask_with_llm_requires_credentials(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {}, clear=True):
+            (Path(directory) / "graph_data.json").write_text(json.dumps({"concepts": [], "properties": [], "instances": [], "relations": []}))
+            with self.assertRaisesRegex(ValueError, "OPENAI_API_KEY"):
+                _ask_with_llm(directory, "What is missing?", 25, "test-model", None)
 
 
 if __name__ == "__main__":

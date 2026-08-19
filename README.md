@@ -189,7 +189,7 @@ The available centrality kinds are `degree`, `betweenness`, and `closeness`.
 ### Ask graph-first questions with minimal context
 
 `ask` answers supported PRD traceability questions from the built `graph_data.json`.
-It never reopens the original source, reads the full source inventory, or calls an external model.
+By default it never reopens the original source, reads the full source inventory, or calls an external model.
 Its compact JSON response contains only the matching graph entities, relationships,
 and their source references. Agent skills query `graph_data.json` directly instead.
 
@@ -201,6 +201,25 @@ uv run ontograph ask outputs/product-requirements \
 Use `--limit` to cap returned entities. If the response reports
 `"answer_type": "unsupported_question"`, use a precise `query` command or a
 read-only SPARQL query instead.
+
+### Ask with an LLM, using graph evidence only
+
+For a natural-language explanation of the local graph result, pass an
+OpenAI-compatible model. The command sends the compact `ask` result only; it does
+not reread or transmit the PRD, source inventory, or original document.
+
+```sh
+export OPENAI_API_KEY="..."
+
+uv run ontograph ask outputs/product-requirements \
+  "Which requirements are not implemented by a user story?" \
+  --llm-model gpt-4.1-mini
+```
+
+Use `--llm-base-url https://gateway.example.com/v1` for a compatible gateway, or
+set `OPENAI_BASE_URL`. The JSON response contains the model answer and the exact
+`graph_evidence` supplied to it, so the result remains auditable. If credentials or
+the endpoint are unavailable, the command fails without sending the original PRD.
 
 ## Extract a PRD draft without building
 
