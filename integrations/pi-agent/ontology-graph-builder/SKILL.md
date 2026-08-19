@@ -31,12 +31,25 @@ unavailable, tell the user to install `uv` or provide a local CLI checkout.
 
 ## Build from a PRD source
 
-For a supplied file, derive a readable output slug from its filename. Unless the user
-chooses an output location, use `<source-parent>/ontology-graphs/<slug>` and run:
+Accept PDF, DOCX, Markdown, and plain-text PRD files. Derive a readable output slug
+from a supplied filename. Unless the user chooses an output location, use
+`<source-parent>/ontology-graphs/<slug>` and run:
 
 ```sh
 <ontograph-command> build <source_path> <output_dir>/<slug>
 ```
+
+For PRD content pasted directly into chat, write it only when the host requires a
+temporary local file; otherwise run the CLI's inline-text form with a user-approved
+output location:
+
+```sh
+<ontograph-command> build --text '<prd content>' --output <output_dir>
+```
+
+The CLI detects canonical `graph_data.json` separately and builds its artifacts without
+re-extracting it. A legacy `.doc` file must be converted to `.docx`; explain that
+actionable limitation rather than attempting to execute a document conversion.
 
 Read `extraction_report.md` and `insights.md` once after the build, then summarize
 coverage, graph counts, notable connected/bridging nodes, and candidate relationship
@@ -75,6 +88,6 @@ service merely to answer a graph-backed question.
 
 ## Other CLI modes
 
-- Use `extract-prd` for a deterministic draft without graph artifacts.
+- Use `extract` for a deterministic draft without graph artifacts.
 - Use `validate` before building manually edited `graph_data.json`.
 - Use `merge` only when the user explicitly asks to extend a built graph.
