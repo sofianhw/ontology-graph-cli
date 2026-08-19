@@ -24,6 +24,24 @@ INVENTORY = [
 
 
 class PrdExtractionTests(unittest.TestCase):
+    def test_comprehensive_semantic_categories_from_table_rows(self):
+        inventory = INVENTORY + [
+            {"id": "p4_t1_r1", "page": 4, "locator": "page 4, table 1, row 1", "category": "table_row", "text": "Short-tail Bank Jago Mandiri BNI Bank Neo Commerce BCA Standard-tail Allo Bank Bank Aladin Syariah blu by BCA Digital DANA SeaBank Long-tail Bank ICBC Indonesia Bank MNC Bank Raya KSEI"},
+            {"id": "p5_l1", "page": 5, "locator": "page 5, line 1", "category": "heading", "text": "US-17 - Rate limiting"},
+            {"id": "p5_l2", "page": 5, "locator": "page 5, line 2", "category": "text", "text": "RR-01 Rate limit applies to US-17"},
+            {"id": "p5_l3", "page": 5, "locator": "page 5, line 3", "category": "table_row", "text": "DE [P0] Snowflake audit copy | Data Engineering"},
+            {"id": "p5_l4", "page": 5, "locator": "page 5, line 4", "category": "text", "text": "HTTP 400, 422, 429, 500, 503, 504"},
+        ]
+        with patch("ontology_graph_cli.prd._inventory", return_value=(inventory, "\n".join(x["text"] for x in inventory))):
+            data, _, _ = prd._extract_deterministic("sample.pdf")
+        validate_data(data)
+        types = {item["type"] for item in data["instances"]}
+        predicates = {item["predicate"] for item in data["relations"]}
+        self.assertTrue({"bank", "account_pattern", "dependency_request", "squad", "error_code", "rate_limiting_requirement"} <= types)
+        self.assertTrue({"supportsBank", "requestsFrom", "blockedByDependency", "implements", "acceptanceCriterionFor"} <= predicates)
+        self.assertTrue(all(item["attributes"].get("source_refs") for item in data["instances"]))
+        self.assertTrue(all(item.get("source_refs") for item in data["relations"]))
+
     def test_template_extraction_has_evidence_and_required_categories(self):
         with patch("ontology_graph_cli.prd._inventory", return_value=(INVENTORY, "\n".join(x["text"] for x in INVENTORY))):
             data, inventory, notes = prd._extract_deterministic("sample.pdf")
@@ -59,6 +77,13 @@ class PrdExtractionTests(unittest.TestCase):
             returned, notes = prd._llm_enrich(data, INVENTORY, "test-model", "https://example.test/v1")
         self.assertEqual(returned, data)
         self.assertIn("LLM enrichment skipped", notes[0])
+
+    def test_llm_entities_require_known_source_references(self):
+        data = {"concepts": [{"id": "thing", "label": "Thing", "kind": "class", "broader": None}], "properties": [], "instances": [], "relations": []}
+        response = MagicMock(); response.read.return_value = json.dumps({"choices": [{"message": {"content": json.dumps({"entities": [{"id": "bad", "label": "Bad", "type": "bank", "source_refs": ["unknown"]}]})}}]}).encode(); response.__enter__.return_value = response
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}, clear=True), patch("ontology_graph_cli.prd.urllib.request.urlopen", return_value=response):
+            returned, _ = prd._llm_enrich(data, INVENTORY, "test", "https://example.test/v1")
+        self.assertEqual(returned["instances"], [])
 
     def test_ask_returns_compact_unimplemented_requirement_context(self):
         data = {"concepts": [{"id": "requirement", "label": "Requirement", "kind": "class", "broader": None}, {"id": "user_story", "label": "User Story", "kind": "class", "broader": None}], "properties": [{"id": "implements", "label": "implements", "kind": "object", "domain": "user_story", "range": "requirement"}], "instances": [{"id": "r1", "label": "R1", "type": "requirement", "attributes": {"source_refs": ["p1_l1"]}}, {"id": "r2", "label": "R2", "type": "requirement", "attributes": {"source_refs": ["p1_l2"]}}, {"id": "story", "label": "US-01", "type": "user_story", "attributes": {"source_refs": ["p2_l1"]}}], "relations": [{"subject": "story", "predicate": "implements", "object": "r1", "source_refs": ["p2_l1"]}]}
