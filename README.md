@@ -14,8 +14,6 @@ marked candidate relationships.
 - Python 3.9 or later
 - [uv](https://docs.astral.sh/uv/)
 - Supported PRD sources: PDF, DOCX, Markdown, text files, and inline text.
-- PDFs need an extractable text layer. Scanned PDFs must be OCRed before use.
-- Legacy `.doc` files must be converted to `.docx` before use.
 
 ## Installation
 
