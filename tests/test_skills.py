@@ -25,7 +25,10 @@ class SkillDistributionTests(unittest.TestCase):
         for target in self.installer.TARGETS:
             adapter = (ROOT / "integrations" / target / "ontology-graph-builder" / "SKILL.md").read_text(encoding="utf-8")
             self.assertEqual(adapter, canonical)
-            self.assertIn("uv --project <project_root> run ontograph", adapter)
+            self.assertIn("uvx --from git+https://github.com/sofianhw/ontology-graph-cli.git ontograph", adapter)
+            self.assertIn("<ontograph-command> ask", adapter)
+            self.assertIn("answer the user's question directly", adapter)
+            self.assertIn("only when the user explicitly asks", adapter)
             self.assertIn("candidate", adapter)
             self.assertNotIn("--llm-model", adapter)
             self.assertIn("This agent is the enrichment", adapter)

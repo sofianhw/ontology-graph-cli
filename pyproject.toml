@@ -9,13 +9,13 @@ description = "Build, inspect, query, and merge RDF/OWL/SKOS knowledge graphs"
 requires-python = ">=3.9"
 license = "MIT"
 classifiers = ["Programming Language :: Python :: 3"]
-dependencies = ["rdflib>=6.0", "networkx>=3.0"]
+dependencies = ["rdflib>=6.0", "networkx>=3.0", "pypdf>=4.0"]
 
 [project.optional-dependencies]
 inference = ["owlrl>=6.0"]
 visualization = ["pyvis>=0.3"]
-full = ["owlrl>=6.0", "pyvis>=0.3", "pypdf>=4.0"]
-pdf = ["pypdf>=4.0"]
+full = ["owlrl>=6.0", "pyvis>=0.3"]
+pdf = []
 
 [project.scripts]
 ontograph = "ontology_graph_cli.cli:main"

@@ -356,20 +356,17 @@ dependencies = [
     { name = "networkx", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pypdf" },
     { name = "rdflib" },
 ]
 
 [package.optional-dependencies]
 full = [
     { name = "owlrl" },
-    { name = "pypdf" },
     { name = "pyvis" },
 ]
 inference = [
     { name = "owlrl" },
-]
-pdf = [
-    { name = "pypdf" },
 ]
 visualization = [
     { name = "pyvis" },
@@ -380,8 +377,7 @@ requires-dist = [
     { name = "networkx", specifier = ">=3.0" },
     { name = "owlrl", marker = "extra == 'full'", specifier = ">=6.0" },
     { name = "owlrl", marker = "extra == 'inference'", specifier = ">=6.0" },
-    { name = "pypdf", marker = "extra == 'full'", specifier = ">=4.0" },
-    { name = "pypdf", marker = "extra == 'pdf'", specifier = ">=4.0" },
+    { name = "pypdf", specifier = ">=4.0" },
     { name = "pyvis", marker = "extra == 'full'", specifier = ">=0.3" },
     { name = "pyvis", marker = "extra == 'visualization'", specifier = ">=0.3" },
     { name = "rdflib", specifier = ">=6.0" },

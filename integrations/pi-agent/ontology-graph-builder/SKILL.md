@@ -5,11 +5,20 @@ description: Build and query auditable ontology graphs from PRD PDFs or canonica
 
 # Ontology Graph Builder
 
-Resolve `project_root` in this order: the installed skill configuration file
-`.ontograph-skill.json`, then the current workspace if it contains this project's
-`pyproject.toml`. If neither identifies the CLI repository, ask the user for its
-local path before running a command. The Python CLI in that repository is the only
-graph engine; do not recreate its extraction or graph logic in prompts or helper code.
+Use the local CLI without reimplementing extraction or graph logic in prompts or
+helper code. Resolve the command prefix in this order:
+
+1. If the installed skill contains `.ontograph-skill.json`, use
+   `uv --project <project_root> run ontograph`.
+2. If the current workspace is an Ontology Graph CLI checkout, use
+   `uv --project <workspace> run ontograph`.
+3. If `ontograph` is already on `PATH`, use `ontograph`.
+4. Otherwise, use
+   `uvx --from git+https://github.com/sofianhw/ontology-graph-cli.git ontograph`.
+
+The final option downloads and caches the published CLI through `uv`, so an
+`npx skills` installation does not require a separate repository clone. If `uv` is
+unavailable, tell the user to install `uv` or provide a local CLI checkout.
 
 ## Safety and source handling
 
@@ -22,10 +31,11 @@ graph engine; do not recreate its extraction or graph logic in prompts or helper
 
 ## Build from a PRD PDF
 
-For a supplied PDF, derive a readable output slug from its filename and run:
+For a supplied PDF, derive a readable output slug from its filename. Unless the user
+chooses an output location, use `<pdf-parent>/ontology-graphs/<slug>` and run:
 
 ```sh
-uv --project <project_root> run ontograph build-prd <pdf_path> <project_root>/outputs/<slug>
+<ontograph-command> build-prd <pdf_path> <output_dir>/<slug>
 ```
 
 Read `extraction_report.md` and `insights.md` once after the build, then summarize
@@ -37,27 +47,33 @@ change.
 
 ## Answer questions about an existing graph
 
-For every follow-up question, use `ask` first. It reads only the built graph JSON and
-returns compact answer context; it does not reopen the PDF, source inventory, or full
-ontology:
+For every follow-up question, use `ask` first. It reads only the built
+`graph_data.json` and returns compact answer context; it does not reopen the PDF,
+source inventory, or full ontology:
 
 ```sh
-uv --project <project_root> run ontograph ask <output_dir> '<question>'
+<ontograph-command> ask <output_dir> '<question>'
 ```
 
-Use the local CLI with `neighbors`, `path`, `centrality`, or a read-only SPARQL query
-only when `ask` returns `unsupported_question`:
+Read the command result and answer the user's question directly in the conversation.
+Show the matching entities, any useful source references, and whether the answer uses
+asserted or candidate links. Do not merely give the user a command or a `.rq` file to
+run, and do not reopen the PRD to answer a graph-backed question.
+
+Only when `ask` returns `unsupported_question`, translate the question into an
+appropriate local `neighbors`, `path`, `centrality`, or read-only SPARQL query, run
+it, and present its result:
 
 ```sh
-uv --project <project_root> run ontograph query <output_dir> sparql '<query>'
+<ontograph-command> query <output_dir> sparql '<query>'
 ```
 
 For a natural-language question, translate it to a read-only query against the local
-graph; do not send graph content to an external service merely to answer it. If the
-host can create files, save the exact SPARQL under `<output_dir>/queries/<slug>.rq`.
-State whether an answer relies on asserted edges, candidate edges, or missing
-traceability. Use your own reasoning to explain likely gaps; do not send graph content
-to a second LLM service.
+graph; do not send graph content to an external service merely to answer it. Save a
+SPARQL query under `<output_dir>/queries/` only when the user explicitly asks for a
+reproducible query file. State whether an answer relies on asserted edges, candidate
+edges, or missing traceability. Use your own reasoning to explain likely gaps; do not
+send graph content to a second LLM service.
 
 ## Other CLI modes
 

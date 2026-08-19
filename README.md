@@ -294,5 +294,10 @@ npx skills add sofianhw/ontology-graph-cli \
 
 `claude-code` is the compatible target for Claude Cowork's standard skill layout;
 `pi` is the `npx skills` target name for pi-agent. To install only for the current
-repository, omit `--global`. The skill uses the active workspace as its CLI root when
-it contains this project; otherwise the agent asks for the local repository path.
+repository, omit `--global`.
+
+The skill needs `uv`, but a separate CLI installation is optional. It uses a configured
+or local CLI checkout when available, then an `ontograph` command already on your
+machine, and otherwise runs the published CLI with `uvx` (which caches it locally).
+For graph follow-up questions, it queries the generated `graph_data.json` and shows the
+result directly. It writes a `.rq` query file only when you explicitly request one.
