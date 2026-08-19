@@ -1,6 +1,8 @@
 import importlib.util
 import json
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -60,6 +62,34 @@ class SkillDistributionTests(unittest.TestCase):
     def test_bundle_manifest_is_current(self):
         result = subprocess.run(["uv", "run", "python", "scripts/verify-standalone-skill.py"], cwd=ROOT, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_standalone_runner_covers_cli_workflow_without_repository(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            skill = work / "skill"
+            shutil.copytree(ROOT / "skills" / "ontology-graph-builder", skill)
+            source = work / "prd.md"
+            source.write_text("# Sample PRD\nUS-01 - Scan image\nAC-01 Given image\n", encoding="utf-8")
+            runner = skill / "scripts" / "ontograph_runner.py"
+
+            def run(*args: str) -> None:
+                result = subprocess.run([sys.executable, str(runner), *args], cwd=work, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+            output = work / "output"
+            draft = work / "draft.json"
+            run("build", str(source), str(output))
+            self.assertTrue((output / "graph_data.json").is_file())
+            self.assertTrue((output / "source_inventory.json").is_file())
+            self.assertTrue((output / "ontology.ttl").is_file())
+            self.assertTrue((output / "graph.graphml").is_file())
+            self.assertTrue((output / "visualization.html").is_file())
+            run("extract", str(source), str(draft))
+            run("validate", str(draft))
+            run("query", str(output), "centrality")
+            run("ask", str(output), "Which requirements are not implemented by a user story?")
+            run("build", str(draft), str(work / "canonical-output"))
+            run("merge", str(output), str(draft), str(work / "merged-output"))
 
     def test_invalid_target_is_rejected(self):
         with self.assertRaises(ValueError):

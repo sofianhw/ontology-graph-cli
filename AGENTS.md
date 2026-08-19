@@ -14,6 +14,10 @@
 4. Run `uv run python scripts/verify-standalone-skill.py`.
 5. Run `uv run python scripts/build-skill-adapters.py` and rerun tests.
 
+The distribution tests run a copied standalone skill outside the repository. They
+must cover `build`, `extract`, `validate`, `merge`, `query`, and `ask`, as well as all
+graph artifacts produced by a source build.
+
 ## Invariants
 
 - Preserve the v1 `concepts`, `properties`, `instances`, `relations` graph contract.
