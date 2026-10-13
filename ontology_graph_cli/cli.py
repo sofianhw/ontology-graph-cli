@@ -14,7 +14,7 @@ from rdflib import Graph
 
 from .core import build, load_data, merge, validate_data
 from .prd import build_prd, extract_prd, report as prd_report
-from .template import compare as compare_template, load_template, report as template_report, template_spec
+from .template import compare as compare_template, load_reviews, load_template, report as template_report, template_spec
 
 
 def _load_output(output_dir: str):
@@ -196,6 +196,8 @@ def parser() -> argparse.ArgumentParser:
     compare_p.add_argument("--output", help="write the report to a .md or .json file instead of printing it")
     compare_p.add_argument("--llm-model", help="OpenAI-compatible model to judge whether filled sections are genuine answers; sends PRD section excerpts")
     compare_p.add_argument("--llm-base-url", help="OpenAI-compatible API base URL; defaults to OPENAI_BASE_URL or OpenAI")
+    compare_p.add_argument("--reviews", help="JSON verdicts {reviews:[{id, verdict, reason}]} from a reviewing agent, keyed by each component's review_id")
+    compare_p.add_argument("--reviewer", default="agent", help="name shown for --reviews verdicts")
     return result
 
 
@@ -246,7 +248,7 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Created template spec: {target} ({len(spec['sections'])} sections, {len(spec['tables'])} tables)")
             print("Review rules and add aliases before comparing PRDs against it.")
         elif args.command == "compare-template":
-            result = compare_template(load_template(args.template), args.prd, model=args.llm_model, base_url=args.llm_base_url)
+            result = compare_template(load_template(args.template), args.prd, model=args.llm_model, base_url=args.llm_base_url, reviews=load_reviews(args.reviews) if args.reviews else None, reviewer=args.reviewer)
             if not args.output: print(template_report(result), end="")
             else:
                 target = Path(args.output); target.parent.mkdir(parents=True, exist_ok=True)

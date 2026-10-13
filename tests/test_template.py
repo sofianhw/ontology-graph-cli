@@ -172,6 +172,23 @@ asdf
         self.assertIn("OPENAI_API_KEY", result["notes"][0])
         self.assertEqual(result["summary"]["fail"], 3)
 
+    def test_agent_reviews_are_merged_without_any_network_call(self):
+        first, reviews, output = self.work / "check.json", self.work / "reviews.json", self.work / "report.md"
+        with redirect_stdout(StringIO()):
+            main(["compare-template", str(self.template), str(self.prd), "--output", str(first)])
+        filled = [c for c in json.loads(first.read_text())["sections"] if c.get("review_id")]
+        self.assertTrue(all(c.get("excerpt") for c in filled if c["id"] != "general_overview"))
+        reviews.write_text(json.dumps({"reviews": [{"id": "section:background", "verdict": "legit", "reason": "Specific current-state context"}, {"id": "section:risk_requirements", "verdict": "weak", "reason": "Justification is thin"}, {"id": "section:background", "verdict": "nonsense"}]}), encoding="utf-8")
+        with patch("ontology_graph_cli.template.urllib.request.urlopen") as urlopen, redirect_stdout(StringIO()):
+            main(["compare-template", str(self.template), str(self.prd), "--reviews", str(reviews), "--reviewer", "claude", "--output", str(output)])
+        urlopen.assert_not_called()
+        text = output.read_text(encoding="utf-8")
+        self.assertIn("reviewed by LLM review (claude)", text)
+        self.assertIn("| Legit content | 1 | 20% | Background |", text)
+        self.assertIn("Risk requirements (if any)**: weak - Justification is thin", text)
+        with self.assertRaises(SystemExit), redirect_stdout(StringIO()), patch("sys.stderr", StringIO()):
+            main(["compare-template", str(self.template), str(self.prd), "--reviews", str(reviews), "--llm-model", "x"])
+
 
 if __name__ == "__main__":
     unittest.main()

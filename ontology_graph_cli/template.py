@@ -109,6 +109,13 @@ def template_spec(source: str | Path) -> dict[str, Any]:
     return {"template_spec_version": SPEC_VERSION, "name": Path(source).stem, "source": Path(source).name, "sections": sections, "tables": tables, "entity_types": dict(sorted(_entity_types(data).items()))}
 
 
+def load_reviews(source: str | Path) -> list[dict[str, Any]]:
+    raw = json.loads(Path(source).read_text(encoding="utf-8"))
+    reviews = raw.get("reviews") if isinstance(raw, dict) else raw
+    if not isinstance(reviews, list): raise ValueError(f"{Path(source).name} must be a JSON list of reviews or an object with a 'reviews' list.")
+    return reviews
+
+
 def load_template(source: str | Path) -> dict[str, Any]:
     path = Path(source)
     if path.suffix.casefold() == ".json":
@@ -158,7 +165,7 @@ def _llm_review(components: list[dict[str, Any]], model: str, base_url: str | No
     """Ask an OpenAI-compatible model whether each filled component is real content or a placeholder."""
     key = os.getenv("OPENAI_API_KEY")
     if not key: return ["LLM content review skipped: OPENAI_API_KEY is not set."]
-    reviewable = {f"{c['kind']}:{c['id']}": c for c in components if c.get("excerpt")}
+    reviewable = {c["review_id"]: c for c in components if c.get("excerpt")}
     if not reviewable: return ["LLM content review skipped: no filled components."]
     prompt = {"task": "For each PRD component, judge whether the content is a genuine, specific answer to what the template component asks for. "
               "Return JSON {reviews:[{id, verdict, reason}]}. verdict is one of legit, weak (vague, generic, or missing key detail), off_topic (answers a different question), placeholder (template text, boilerplate, dummy or meaningless content). "
@@ -171,22 +178,33 @@ def _llm_review(components: list[dict[str, Any]], model: str, base_url: str | No
         with urllib.request.urlopen(request, timeout=120) as response: reviews = json.loads(json.loads(response.read())["choices"][0]["message"]["content"]).get("reviews", [])
     except (urllib.error.URLError, KeyError, ValueError, AttributeError, json.JSONDecodeError) as error:
         return [f"LLM content review skipped: {error}"]
+    applied = _apply_reviews(reviewable, reviews, model)
+    return [f"LLM content review ({model}) judged {applied} of {len(reviewable)} component(s); PRD excerpts were sent to the model."]
+
+
+def _apply_reviews(reviewable: dict[str, dict[str, Any]], reviews: Any, reviewer: str) -> int:
+    """Attach validated verdicts; unknown component ids and verdicts are ignored."""
     applied = 0
     for review in reviews if isinstance(reviews, list) else []:
         component = reviewable.get(review.get("id")) if isinstance(review, dict) else None
         if not component or review.get("verdict") not in LLM_VERDICTS: continue
-        component["llm_review"] = {"verdict": review["verdict"], "reason": _clean(str(review.get("reason", "")))[:300], "model": model}
+        component["llm_review"] = {"verdict": review["verdict"], "reason": _clean(str(review.get("reason", "")))[:300], "model": reviewer}
         if review["verdict"] != "legit" and component["result"] == "pass": component["result"] = "warn"
         applied += 1
-    return [f"LLM content review ({model}) judged {applied} of {len(reviewable)} component(s); PRD excerpts were sent to the model."]
+    return applied
 
 
 def _result(rule: str, status: str) -> str:
     return "fail" if status in FAILING[rule] else "warn" if status in WARNING[rule] else "pass"
 
 
-def compare(template: dict[str, Any], prd_source: str | Path, inline_text: str | None = None, model: str | None = None, base_url: str | None = None) -> dict[str, Any]:
-    """Grade a PRD against a template spec using deterministic, source-referenced checks."""
+def compare(template: dict[str, Any], prd_source: str | Path, inline_text: str | None = None, model: str | None = None, base_url: str | None = None, reviews: list[dict[str, Any]] | None = None, reviewer: str = "agent") -> dict[str, Any]:
+    """Grade a PRD against a template spec using deterministic, source-referenced checks.
+
+    Content verdicts come from ``model`` (an external API call) or from ``reviews``
+    already produced by the calling agent; the latter sends nothing anywhere.
+    """
+    if model and reviews is not None: raise ValueError("Use either --llm-model or --reviews, not both.")
     data, inventory, _ = _extract_deterministic(prd_source, inline_text)
     expected = template.get("sections", [])
     known = {_key(name) for section in expected for name in [section["label"], *section.get("aliases", [])]}
@@ -237,12 +255,16 @@ def compare(template: dict[str, Any], prd_source: str | Path, inline_text: str |
     filled = [item for item in components if BUCKETS[item["status"]] in {"complete", "partial"}]
     for item in components:
         if item not in filled: item.pop("excerpt", None)
-    notes = _llm_review(filled, model, base_url) if model else []
+    for item in filled: item["review_id"] = f"{item['kind']}:{item['id']}"
+    if reviews is not None:
+        reviewable = {item["review_id"]: item for item in filled if item.get("excerpt")}
+        notes = [f"Content review by {reviewer} applied {_apply_reviews(reviewable, reviews, reviewer)} of {len(reviewable)} component verdict(s)."]
+    else: notes = _llm_review(filled, model, base_url) if model else []
     for item in filled: item["content"] = _content_verdict(item)
     results = Counter(item["result"] for item in sections + tables)
     return {"template": template.get("name"), "prd": "inline-text" if inline_text is not None else Path(prd_source).name,
             "summary": {"completeness": _breakdown(components, lambda item: BUCKETS[item["status"]], ("complete", "partial", "not_filled", "missing")),
-                        "content": {"reviewed_by": f"llm:{model}" if any("llm_review" in item for item in filled) else "automatic", **_breakdown(filled, lambda item: item["content"]["verdict"], ("legit", "no_issue_found", "weak", "off_topic", "placeholder"))},
+                        "content": {"reviewed_by": f"llm:{model or reviewer}" if any("llm_review" in item for item in filled) else "automatic", **_breakdown(filled, lambda item: item["content"]["verdict"], ("legit", "no_issue_found", "weak", "off_topic", "placeholder"))},
                         "sections": len(sections), "tables": len(tables), "pass": results["pass"], "warn": results["warn"], "fail": results["fail"]},
             "sections": sections, "tables": tables, "entity_types": entities, "extra_sections": extra, "notes": notes,
             "note": "Completeness uses deterministic heading/content checks with source references. A missing match can mean the PRD renamed a section; add aliases to the template spec."}

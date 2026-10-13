@@ -298,6 +298,18 @@ OPENAI_API_KEY=... uv run ontograph compare-template prd-template.docx my-prd.pd
   --llm-model gpt-4.1-mini --output report.md
 ```
 
+Verdicts can also come from a reviewer you run yourself, such as the agent using the
+bundled skill. Every filled component in the JSON report has a `review_id` and an
+`excerpt`. Write `{"reviews": [{"id": "<review_id>", "verdict": "legit", "reason": "..."}]}`
+and pass it with `--reviews`; nothing is sent over the network. The skill does this
+automatically on every template check.
+
+```sh
+uv run ontograph compare-template prd-template.docx my-prd.pdf --output check.json
+uv run ontograph compare-template prd-template.docx my-prd.pdf \
+  --reviews content_reviews.json --reviewer claude --output report.md
+```
+
 To curate a template once and reuse it, write it out as an editable spec. Adjust
 `rule` (`required`, `justify`, `optional`, `heading`), add `aliases` for headings that
 PRDs commonly rename, then compare against the spec:
