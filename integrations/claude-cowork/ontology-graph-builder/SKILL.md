@@ -1,6 +1,6 @@
 ---
 name: ontology-graph-builder
-description: Build and query auditable ontology graphs from PRD sources or canonical graph JSON using the local Ontology Graph CLI. Use for PDF, DOCX, Markdown, text, or inline PRDs that need RDF/OWL/SKOS, GraphML, visualization, or graph-backed answers.
+description: Build and query auditable ontology graphs from PRD sources or canonical graph JSON, and check PRDs for completeness and content quality against a PRD template (built-in or user-supplied), using the local Ontology Graph CLI. Use for PDF, DOCX, Markdown, text, or inline PRDs that need RDF/OWL/SKOS, GraphML, visualization, graph-backed answers, or a review of whether the PRD is complete, follows the template, or contains placeholder content.
 ---
 
 # Ontology Graph Builder
