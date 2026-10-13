@@ -6,7 +6,7 @@
     "__init__.py": "4991809befe15e0ea229a57c18f1bf7348ec0aea4622a99b5ba8836400d8d051",
     "core.py": "19b2fcecaa68864a41cf56b234570f21da5f612cd158209b3b406a48c04a62a3",
     "prd.py": "b8487c57ad75f3fa47e6916acbfa080a69d238f5be74606f15c00b7f8eaf5779",
-    "template.py": "2920d3796a297eed2fdc917853cd70d7622c01264c9a4863037993433e3ace67",
-    "cli.py": "e37d5b3e67c239843314085f23dc8ba32ceb708fb9556cceb153a8311dd69c4e"
+    "template.py": "c4daff2cee7c97b0194f32fac879b00f4c439c3bd9efb15cfa746302f8ae3cdf",
+    "cli.py": "ca79a84a381eb85aab3245fba8d6b22ca050ac0b1b9d5fc5ce9c5273f1c4628b"
   }
 }

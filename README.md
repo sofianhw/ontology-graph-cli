@@ -241,6 +241,17 @@ uv run ontograph compare-template prd-template.docx my-prd.pdf --output report.m
 uv run ontograph compare-template prd-template.docx my-prd.pdf --output report.json
 ```
 
+The report has two parts:
+
+1. **Completeness** counts the components the template demands (required sections,
+   sections that may be N/A with a reason, and tables). It shows the percentage that are
+   complete, partially filled, present but empty or placeholder, and missing, and names
+   the components in each bucket.
+2. **Content check** looks at the filled components and labels each one `placeholder`,
+   `weak`, `off_topic`, or `legit`. Without `--llm-model` this uses the automatic flags
+   below, so a component with no red flags is reported as "not judged" rather than
+   legit.
+
 Each template section is graded with a source location in the PRD:
 
 | Status | Meaning |
@@ -275,8 +286,8 @@ deterministic `quality_flags`:
 | `duplicate_of:<id>` | The same text pasted under another section. | warn |
 
 To judge whether the content genuinely answers what each template section asks,
-add an OpenAI-compatible model. The model labels each filled section `legit`, `weak`,
-`off_topic`, or `filler` with a short reason, and anything other than `legit` becomes
+add an OpenAI-compatible model. The model labels each filled component (sections and tables) `legit`, `weak`,
+`off_topic`, or `placeholder` with a short reason, and anything other than `legit` becomes
 a warning. **This sends PRD section excerpts (up to 1,500 characters each) and the
 template guidance to the model endpoint**, so use it only for documents you may share
 with that provider. Without `OPENAI_API_KEY`, the review is skipped and the

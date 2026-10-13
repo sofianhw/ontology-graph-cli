@@ -85,7 +85,16 @@ class TemplateComparisonTests(unittest.TestCase):
         self.assertEqual(result["tables"][0]["missing_columns"], ["Priority"])
         self.assertIn("Rollout notes", [section["label"] for section in result["extra_sections"]])
         self.assertTrue(all(section["source_refs"] for section in result["sections"] if section["status"] != "missing"))
-        self.assertIn("| fail | Fraud Requirements (if any) |", report(result))
+        completeness = result["summary"]["completeness"]
+        self.assertEqual(completeness["total"], 8)
+        self.assertEqual(completeness["missing"]["components"], ["Fraud Requirements (if any)"])
+        self.assertEqual(completeness["missing"]["percent"], 12.5)
+        self.assertEqual(set(completeness["not_filled"]["components"]), {"Problem Statement", "Feature Flag (if any)"})
+        self.assertEqual(set(completeness["partial"]["components"]), {"Out of scope", "Table: No, User Story, Acceptance Criteria, ..."})
+        text = report(result)
+        self.assertIn("**37.5% complete, 12.5% missing**", text)
+        self.assertIn("| Missing | 1 | 12.5% | Fraud Requirements (if any) |", text)
+        self.assertIn("add --llm-model", text)
 
     def test_aliases_in_edited_spec_match_renamed_sections(self):
         spec = template_spec(self.template)
@@ -110,7 +119,7 @@ class TemplateComparisonTests(unittest.TestCase):
         self.assertEqual(result["summary"]["fail"], 3)
         with redirect_stdout(StringIO()) as printed:
             main(["compare-template", str(self.template), str(self.prd)])
-        self.assertIn("# Template comparison: prd.md", printed.getvalue())
+        self.assertIn("# PRD template check: prd.md", printed.getvalue())
 
     def test_quality_flags_catch_filled_but_illegitimate_content(self):
         weak = self.work / "weak.md"
@@ -135,20 +144,27 @@ asdf
         self.assertIn("gibberish", sections["fraud_requirements"]["quality_flags"])
         self.assertEqual(sections["out_of_scope"]["result"], "fail")
         self.assertIn("filler_text", sections["out_of_scope"]["quality_flags"])
-        self.assertEqual(result["summary"]["quality_flagged"], 4)
+        content = result["summary"]["content"]
+        self.assertEqual(content["reviewed_by"], "automatic")
+        self.assertEqual(set(content["placeholder"]["components"]), {"Fraud Requirements (if any)", "Out of scope"})
+        self.assertEqual(set(content["weak"]["components"]), {"Problem Statement", "Risk requirements (if any)"})
 
     def test_llm_review_marks_weak_sections_and_ignores_unknown_ids(self):
-        content = {"reviews": [{"id": "background", "verdict": "weak", "reason": "Too generic"}, {"id": "nope", "verdict": "legit"}, {"id": "risk_requirements", "verdict": "bogus"}]}
+        content = {"reviews": [{"id": "section:background", "verdict": "placeholder", "reason": "Generic boilerplate"}, {"id": "nope", "verdict": "legit"}, {"id": "section:risk_requirements", "verdict": "bogus"}, {"id": "table:table_1", "verdict": "legit", "reason": "Concrete story"}]}
         response = MagicMock(); response.read.return_value = json.dumps({"choices": [{"message": {"content": json.dumps(content)}}]}).encode(); response.__enter__.return_value = response
         with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}, clear=True), patch("ontology_graph_cli.template.urllib.request.urlopen", return_value=response) as urlopen:
             result = compare(template_spec(self.template), self.prd, model="test-model", base_url="https://example.test/v1")
         sent = json.loads(json.loads(urlopen.call_args.args[0].data)["messages"][1]["content"])
-        self.assertIn("background", [section["id"] for section in sent["sections"]])
-        self.assertNotIn("fraud_requirements", [section["id"] for section in sent["sections"]])
+        sent_ids = [component["id"] for component in sent["components"]]
+        self.assertIn("section:background", sent_ids); self.assertIn("table:table_1", sent_ids)
+        self.assertNotIn("section:fraud_requirements", sent_ids); self.assertNotIn("section:problem_statement", sent_ids)
         background = next(s for s in result["sections"] if s["id"] == "background")
-        self.assertEqual((background["llm_review"]["verdict"], background["result"]), ("weak", "warn"))
-        self.assertNotIn("llm_review", next(s for s in result["sections"] if s["id"] == "risk_requirements"))
-        self.assertIn("LLM: weak - Too generic", report(result))
+        self.assertEqual((background["content"]["verdict"], background["content"]["source"], background["result"]), ("placeholder", "llm", "warn"))
+        risk = next(s for s in result["sections"] if s["id"] == "risk_requirements")
+        self.assertNotIn("llm_review", risk); self.assertEqual(risk["content"]["source"], "automatic")
+        content = result["summary"]["content"]
+        self.assertEqual((content["reviewed_by"], content["legit"]["components"], content["placeholder"]["components"]), ("llm:test-model", ["Table: No, User Story, Acceptance Criteria, ..."], ["Background"]))
+        self.assertIn("Background**: placeholder - Generic boilerplate", report(result))
 
     def test_llm_review_without_credentials_keeps_deterministic_result(self):
         with patch.dict("os.environ", {}, clear=True):

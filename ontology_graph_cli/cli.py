@@ -251,7 +251,11 @@ def main(argv: list[str] | None = None) -> None:
             else:
                 target = Path(args.output); target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(json.dumps(result, indent=2) if target.suffix.casefold() == ".json" else template_report(result), encoding="utf-8")
-                summary = result["summary"]; print(f"Template score: {summary['score']:.0%} ({summary['pass']} pass, {summary['warn']} warn, {summary['fail']} fail)"); print(f"Report written to {target}")
+                done, content = result["summary"]["completeness"], result["summary"]["content"]
+                print(f"Completeness: {done['complete']['percent']:g}% complete, {done['missing']['percent']:g}% missing ({done['complete']['count']} of {done['total']} components)")
+                if done["missing"]["components"]: print("Missing: " + ", ".join(done["missing"]["components"]))
+                print(f"Content ({content['reviewed_by']}): " + ", ".join(f"{name} {content[name]['count']}" for name in ("legit", "no_issue_found", "weak", "off_topic", "placeholder") if content[name]["count"]))
+                print(f"Report written to {target}")
         else: print(json.dumps(_query(args), indent=2))
     except (ValueError, KeyError, nx.NetworkXException, OSError) as error:
         print(f"Error: {error}", file=sys.stderr); raise SystemExit(2)
