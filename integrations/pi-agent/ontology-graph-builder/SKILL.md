@@ -113,7 +113,9 @@ run all three steps. The content review is part of every template check, not opt
    <standalone-runner> compare-template <template_path> <prd_path> --reviews <output_dir>/content_reviews.json --reviewer <your model name> --output <output_dir>/template_report.md
    ```
 
-The template may be a PDF, DOCX, Markdown, or text file, or a spec JSON created with
+If the user does not supply a template, omit `<template_path>` from both commands to use
+the built-in PRD template, and say that the default template was used. Otherwise the
+template may be a PDF, DOCX, Markdown, or text file, or a spec JSON created with
 `extract-template <template_path> <spec.json>`. Tell the user the completeness
 percentage and the missing components first. Then give the content verdicts, with
 `placeholder`, `off_topic`, and `weak` components and their PRD locations. Link

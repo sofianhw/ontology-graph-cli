@@ -96,6 +96,7 @@ class SkillDistributionTests(unittest.TestCase):
             run("compare-template", str(work / "template_spec.json"), str(source), "--output", str(work / "template_report.md"))
             self.assertTrue((work / "template_report.md").is_file())
             (work / "content_reviews.json").write_text('{"reviews": [{"id": "section:background", "verdict": "placeholder", "reason": "Template prompt only"}]}', encoding="utf-8")
+            run("compare-template", str(source), "--output", str(work / "default_template_report.md"))
             run("compare-template", str(work / "template_spec.json"), str(source), "--reviews", str(work / "content_reviews.json"), "--output", str(work / "template_report.md"))
 
     def test_invalid_target_is_rejected(self):

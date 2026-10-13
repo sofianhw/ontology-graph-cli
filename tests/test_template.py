@@ -7,6 +7,7 @@ from io import StringIO
 from pathlib import Path
 
 from ontology_graph_cli.cli import main
+from ontology_graph_cli.default_template import DEFAULT_TEMPLATE
 from ontology_graph_cli.template import compare, load_template, report, template_spec
 
 
@@ -188,6 +189,67 @@ asdf
         self.assertIn("Risk requirements (if any)**: weak - Justification is thin", text)
         with self.assertRaises(SystemExit), redirect_stdout(StringIO()), patch("sys.stderr", StringIO()):
             main(["compare-template", str(self.template), str(self.prd), "--reviews", str(reviews), "--llm-model", "x"])
+
+    def _template_shaped_docx(self) -> Path:
+        """A PRD laid out like common Google Docs templates: one-cell boxes and nested tables."""
+        from docx import Document
+        document = Document()
+        def row(table, index, values):
+            for cell, value in zip(table.rows[index].cells, values): cell.text = value
+        document.add_paragraph("Change Log")
+        table = document.add_table(rows=2, cols=3); row(table, 0, ["Version", "Date", "Changes & Justification"]); row(table, 1, ["1.0", "2026-09-01", "Initial draft"])
+        document.add_paragraph("Sign offs/Acknowledgements")
+        table = document.add_table(rows=1, cols=3); row(table, 0, ["Prepared by", "[Name]", "Tanggal / Date"])
+        for heading, body in [("Background", "Customers wait up to two business days for interbank transfers."), ("Problem Statement", "[What is the problem you're trying to solve?]")]:
+            document.add_paragraph(heading); document.add_table(rows=1, cols=1).rows[0].cells[0].text = body
+        document.add_paragraph("Requirements")
+        box = document.add_table(rows=1, cols=1).rows[0].cells[0]; box.text = "[What are you trying to accomplish? Be specific on impact and timeline]"
+        for line in ["6.1. Business Requirements", "Users can send instant transfers up to 50 million per day.", "6.4. Feature Flag (if any)", "N/A", "6.12 CRM brief", "Nudge users after their first transfer."]: box.add_paragraph(line)
+        crm = box.add_table(rows=2, cols=3); row(crm, 0, ["User Type", "Lifecycle", "User Journey"]); row(crm, 1, ["Existing", "Retention", "First transfer then nudge"])
+        document.add_paragraph("User Stories / Acceptance Criteria")
+        table = document.add_table(rows=2, cols=5); row(table, 0, ["No", "User Story", "Acceptance Criteria", "Priority", "Remarks"]); row(table, 1, ["1", "As a user I want instant transfers so money arrives now", "Given balance When I send Then it arrives", "P0", "-"])
+        path = self.work / "template_shaped.docx"; document.save(path); return path
+
+    def test_default_template_reads_docx_boxes_and_nested_tables_in_order(self):
+        result = compare(load_template(), self._template_shaped_docx())
+        status = {s["id"]: s["status"] for s in result["sections"]}
+        self.assertEqual(status["change_log"], "filled")
+        self.assertEqual(status["sign_offs"], "placeholder")
+        self.assertEqual(status["background"], "filled")
+        self.assertEqual(status["problem_statement"], "placeholder")
+        self.assertEqual(status["business_requirements"], "filled")
+        self.assertEqual(status["feature_flag"], "not_applicable_unjustified")
+        self.assertEqual(status["crm_brief"], "filled")
+        self.assertEqual(status["user_stories"], "filled")
+        self.assertEqual(status["security_assessment"], "missing")
+        tables = {t["id"]: t["status"] for t in result["tables"]}
+        self.assertEqual((tables["user_stories_table"], tables["crm_table"], tables["dependency_table"]), ("filled", "partial", "missing"))
+        components = result["summary"]["completeness"]
+        self.assertNotIn("Dependency requests table", components["missing"]["components"])  # optional tables only count when present
+        self.assertIn("Security assessment table", components["missing"]["components"])
+
+    def test_generic_heading_does_not_take_a_more_specific_match(self):
+        prd = self.work / "numbered.md"; prd.write_text("# Instant Transfer\n## 6.1 Business Requirements\nUsers can transfer instantly.\n", encoding="utf-8")
+        sections = {s["id"]: s for s in compare(load_template(), prd)["sections"]}
+        self.assertEqual(sections["business_requirements"]["status"], "filled")
+        self.assertEqual(sections["requirements"]["status"], "missing")
+
+    def test_default_template_is_organization_neutral(self):
+        text = json.dumps(DEFAULT_TEMPLATE).casefold()
+        for term in ("superbank", "jumpcloud", "ojk", "bi snap", "janus", "insider", "customer360", "one-dash", "saku", "pocket__", "fintrust", "corex", "indonesia"):
+            self.assertNotIn(term, text)
+        self.assertEqual(load_template("default"), DEFAULT_TEMPLATE)
+        self.assertEqual(template_spec("default"), DEFAULT_TEMPLATE)
+
+    def test_cli_uses_default_template_when_only_a_prd_is_given(self):
+        output, spec = self.work / "default.json", self.work / "default_spec.json"
+        with redirect_stdout(StringIO()):
+            main(["compare-template", str(self.prd), "--output", str(output)])
+            main(["extract-template", "default", str(spec)])
+        self.assertEqual(json.loads(output.read_text())["template"], "default PRD template")
+        self.assertEqual(json.loads(spec.read_text())["name"], "default PRD template")
+        with self.assertRaises(SystemExit), redirect_stdout(StringIO()), patch("sys.stderr", StringIO()):
+            main(["compare-template", "a.md", "b.md", "c.md"])
 
 
 if __name__ == "__main__":

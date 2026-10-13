@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "ontology-graph-builder"
-MODULES = ("__init__.py", "core.py", "prd.py", "template.py", "cli.py")
+MODULES = ("__init__.py", "core.py", "prd.py", "default_template.py", "template.py", "cli.py")
 
 
 def digest(path: Path) -> str: return hashlib.sha256(path.read_bytes()).hexdigest()

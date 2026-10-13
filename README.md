@@ -233,9 +233,15 @@ uv run ontograph build graph_data.json outputs/prd
 ## Compare a PRD with a template
 
 Check whether a PRD follows your team's PRD template. The template can be any PDF,
-DOCX, Markdown, or text file; download a Google Doc as `.docx` first.
+DOCX, Markdown, or text file; download a Google Doc as `.docx` first. Leave the
+template out to use the built-in, organization-neutral PRD template: change log,
+sign-offs, general overview, requirements 6.1-6.12 (business, regulatory, audit trail,
+feature flag, operational, risk, fraud, data protection, reconciliation, roll-out,
+event trackers, CRM), dependencies, NFRs, flow diagram, out of scope, user stories, and
+security assessment.
 
 ```sh
+uv run ontograph compare-template my-prd.docx
 uv run ontograph compare-template prd-template.docx my-prd.pdf
 uv run ontograph compare-template prd-template.docx my-prd.pdf --output report.md
 uv run ontograph compare-template prd-template.docx my-prd.pdf --output report.json
@@ -316,11 +322,14 @@ PRDs commonly rename, then compare against the spec:
 
 ```sh
 uv run ontograph extract-template prd-template.docx prd-template.spec.json
+uv run ontograph extract-template default my-team.spec.json   # start from the built-in template
 uv run ontograph compare-template prd-template.spec.json my-prd.pdf
 ```
 
-Headings are detected from DOCX heading styles, Markdown `#` headings, and numbered
-lines. Unstyled PDF headings are recognized only when they match a template section,
+DOCX files are read in document order, including one-cell "answer boxes" and tables
+nested inside table cells, which many Google Docs templates use. Headings are detected
+from DOCX heading styles, Markdown `#` headings, numbered lines, and any line matching a
+template section or alias. Unstyled PDF headings are recognized only when they match a template section,
 so a styled DOCX or a curated spec gives the most reliable results.
 
 ## Merge graph data

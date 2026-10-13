@@ -2,6 +2,7 @@
 """Compare PRD sources against a reusable PRD template document or template spec."""
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .core import slug
+from .default_template import DEFAULT_TEMPLATE
 from .prd import _clean, _extract_deterministic
 
 
@@ -55,6 +57,55 @@ def _similar(left: str, right: str) -> float:
     return SequenceMatcher(None, left, right).ratio()
 
 
+def _docx_ordered_inventory(path: Path) -> list[dict[str, Any]]:
+    """DOCX paragraphs and table cells in reading order, including nested tables.
+
+    Templates often put a section's prompt (and the PRD its answer) inside a one-cell
+    table, so the paragraphs-then-tables extraction inventory would separate them.
+    """
+    from docx import Document
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+    document, items, counters = Document(path), [], {"p": 0, "t": 0}
+
+    def paragraph_item(paragraph: Paragraph, identifier: str, locator: str, in_grid: bool = False) -> None:
+        text = _clean(paragraph.text)
+        if not text: return
+        style = getattr(paragraph.style, "name", "") or ""
+        category = "heading" if style.casefold().startswith("heading") or re.match(r"(?:\[[A-Z]\]\s+|\d+(?:\.\d+){0,3}\.?\s+)", text) else "paragraph"
+        items.append({"id": identifier, "source_format": "docx", "locator": locator, "category": category, "text": text, "in_grid": in_grid})
+
+    def table_items(table: Table, prefix: str, locator: str) -> None:
+        for row_no, row in enumerate(table.rows, 1):
+            cells, seen = [], set()
+            for cell in row.cells:
+                if id(cell._tc) not in seen: seen.add(id(cell._tc)); cells.append(cell)  # merged cells repeat
+            values = [_clean(cell.text) for cell in cells]
+            if any(values): items.append({"id": f"{prefix}_r{row_no}", "source_format": "docx", "locator": f"{locator}, row {row_no}", "category": "table_row", "text": " | ".join(values), "cells": values})
+            for cell_no, cell in enumerate(cells, 1):
+                walk(cell._tc, f"{prefix}_r{row_no}_c{cell_no}", f"{locator}, row {row_no}, cell {cell_no}", cell, len(cells) > 1)
+
+    def walk(element: Any, prefix: str, locator: str, parent: Any, in_grid: bool = False) -> None:
+        nested = 0; paragraph_no = 0
+        for child in element.iterchildren():
+            tag = child.tag.rsplit("}", 1)[-1]
+            if tag == "p":
+                if prefix == "docx": counters["p"] += 1; paragraph_item(Paragraph(child, parent), f"docx_p{counters['p']}", f"paragraph {counters['p']}")
+                else: paragraph_no += 1; paragraph_item(Paragraph(child, parent), f"{prefix}_p{paragraph_no}", f"{locator}, paragraph {paragraph_no}", in_grid)
+            elif tag == "tbl":
+                if prefix == "docx": counters["t"] += 1; table_items(Table(child, parent), f"docx_t{counters['t']}", f"table {counters['t']}")
+                else: nested += 1; table_items(Table(child, parent), f"{prefix}_t{nested}", f"{locator}, table {nested}")
+
+    walk(document.element.body, "docx", "", document)
+    return items
+
+
+def _structure(source: str | Path, inventory: list[dict[str, Any]], inline_text: str | None = None) -> list[dict[str, Any]]:
+    """Inventory used for section/table structure; DOCX is re-read in reading order."""
+    if inline_text is None and Path(source).suffix.casefold() == ".docx": return _docx_ordered_inventory(Path(source))
+    return inventory
+
+
 def _sections(inventory: list[dict[str, Any]], known: set[str] = frozenset()) -> list[dict[str, Any]]:
     """Split ordered paragraph/line items into heading-bounded sections; tables are checked separately."""
     sections: list[dict[str, Any]] = []
@@ -62,7 +113,8 @@ def _sections(inventory: list[dict[str, Any]], known: set[str] = frozenset()) ->
         if item["category"] in {"table_row", "table_cell"}: continue
         text = item["text"]
         # Numbered list items are flagged as headings by the inventory; long ones are content.
-        boundary = len(text) <= 120 and not ITEM_ID.match(text) and (_key(text) in known or (item["category"] == "heading" and not (re.match(r"\d", text) and len(text.split()) > 10)))
+        # Column headers inside multi-column tables are content; one-cell boxes may hold headings.
+        boundary = len(text) <= 120 and not item.get("in_grid") and not ITEM_ID.match(text) and (_key(text) in known or (item["category"] == "heading" and not (re.match(r"\d", text) and len(text.split()) > 10)))
         if boundary and _key(text):
             sections.append({"label": NUMBER.sub("", text, count=1) or text, "number": _number(text), "key": _key(text), "ref": item["id"], "locator": item.get("locator", item["id"]), "items": []})
         elif sections: sections[-1]["items"].append(item)
@@ -95,7 +147,9 @@ def _entity_types(data: dict[str, list[dict[str, Any]]]) -> Counter:
 
 def template_spec(source: str | Path) -> dict[str, Any]:
     """Derive an editable template spec: expected sections, their rules, tables, and entity types."""
+    if str(source) == "default": return copy.deepcopy(DEFAULT_TEMPLATE)
     data, inventory, _ = _extract_deterministic(source)
+    inventory = _structure(source, inventory)
     sections, seen = [], set()
     for section in _sections(inventory):
         if section["key"] in seen: continue
@@ -106,7 +160,7 @@ def template_spec(source: str | Path) -> dict[str, Any]:
         identifier, ordinal = slug(section["key"]).lower() or "section", 2
         while any(s["id"] == identifier for s in sections): identifier = f"{slug(section['key']).lower()}_{ordinal}"; ordinal += 1
         sections.append({"id": identifier, "label": section["label"], "number": section["number"], "rule": rule, "aliases": [], "guidance": guidance, "source_refs": [section["ref"]]})
-    tables = [{"id": f"table_{number}", "label": f"Table: {', '.join(table['columns'][:3])}{', ...' if len(table['columns']) > 3 else ''}", "columns": table["columns"], "source_refs": [table["ref"]]} for number, table in enumerate((t for t in _tables(inventory) if len(t["columns"]) >= 2), 1)]
+    tables = [{"id": f"table_{number}", "label": f"Table: {', '.join(table['columns'][:3])}{', ...' if len(table['columns']) > 3 else ''}", "rule": "required", "columns": table["columns"], "source_refs": [table["ref"]]} for number, table in enumerate((t for t in _tables(inventory) if len(t["columns"]) >= 2), 1)]
     return {"template_spec_version": SPEC_VERSION, "name": Path(source).stem, "source": Path(source).name, "sections": sections, "tables": tables, "entity_types": dict(sorted(_entity_types(data).items()))}
 
 
@@ -117,7 +171,9 @@ def load_reviews(source: str | Path) -> list[dict[str, Any]]:
     return reviews
 
 
-def load_template(source: str | Path) -> dict[str, Any]:
+def load_template(source: str | Path | None = None) -> dict[str, Any]:
+    """Load a spec JSON, derive a spec from a template document, or use the built-in default."""
+    if source is None or str(source) == "default": return copy.deepcopy(DEFAULT_TEMPLATE)
     path = Path(source)
     if path.suffix.casefold() == ".json":
         spec = json.loads(path.read_text(encoding="utf-8"))
@@ -125,19 +181,29 @@ def load_template(source: str | Path) -> dict[str, Any]:
         for section in spec.get("sections", []):
             if not section.get("id") or not section.get("label") or section.get("rule") not in FAILING: raise ValueError(f"Template section {section.get('id') or section.get('label')!r} needs id, label, and a rule of {', '.join(FAILING)}.")
         for table in spec.get("tables", []):
-            if not table.get("id") or not table.get("columns"): raise ValueError(f"Template table {table.get('id')!r} needs id and columns.")
+            if not table.get("id") or not table.get("columns") or table.get("rule", "required") not in {"required", "optional"}: raise ValueError(f"Template table {table.get('id')!r} needs id, columns, and a rule of required or optional.")
         return spec
     return template_spec(path)
+
+
+def _echoes(content: str, guidance: str) -> bool:
+    """Content that is the guidance, or a fragment of it, is template text.
+
+    The reverse is not: real answers often contain guidance words ("As a user I want ...").
+    """
+    if SequenceMatcher(None, content, guidance).ratio() >= 0.9: return True
+    return len(content) >= 4 and bool(re.search(rf"(?:^|\s){re.escape(content)}(?:\s|$)", guidance))
 
 
 def _section_status(section: dict[str, Any], expected: dict[str, Any]) -> tuple[str, list[str]]:
     guidance = [_key(line) for line in expected.get("guidance", [])]
     content, placeholders = [], 0
     for item in section["items"]:
-        text, key = item["text"], _key(item["text"])
+        text = item["text"].strip("| ")  # Markdown one-cell tables keep their pipes.
+        key = _key(text)
         if not key: continue  # Markdown table separators and stray punctuation.
         # Unchanged template guidance and bracketed prompts are not answers.
-        if PLACEHOLDER.match(text) or any(_similar(key, line) >= 0.9 for line in guidance if line): placeholders += 1
+        if PLACEHOLDER.match(text) or any(_echoes(key, line) for line in guidance if line): placeholders += 1
         else: content.append(item)
     if not content: return ("placeholder" if placeholders else "empty"), []
     texts = [item["text"] for item in content]
@@ -153,9 +219,9 @@ def _quality_flags(texts: list[str], expected: dict[str, Any]) -> list[str]:
     flags = []
     if FILLER.search(joined): flags.append("filler_text")
     if all(REFERENCE.match(text) for text in texts): flags.append("reference_only")
-    if expected["rule"] == "required" and len(re.findall(r"\w+", joined)) < 4: flags.append("too_short")
+    if expected["rule"] == "required" and len(re.findall(r"\w+", joined)) < 2: flags.append("too_short")
     guidance = [_key(line) for line in expected.get("guidance", []) if _key(line)]
-    if any(0.6 <= _similar(_key(text), line) < 0.9 for text in texts for line in guidance if len(line.split()) >= 4): flags.append("copies_guidance")
+    if any(0.6 <= SequenceMatcher(None, _key(text), line).ratio() < 0.9 for text in texts for line in guidance if len(line.split()) >= 4): flags.append("copies_guidance")
     long_words = [word for word in words if len(word) >= 4]
     if len(long_words) >= 3 and sum(not re.search(r"[aeiouy]", word) for word in long_words) / len(long_words) > 0.3: flags.append("gibberish")
     if len(words) >= 8 and len(set(words)) / len(words) < 0.35: flags.append("repetitive")
@@ -209,15 +275,20 @@ def compare(template: dict[str, Any], prd_source: str | Path, inline_text: str |
     data, inventory, _ = _extract_deterministic(prd_source, inline_text)
     expected = template.get("sections", [])
     known = {_key(name) for section in expected for name in [section["label"], *section.get("aliases", [])]}
-    found, used, sections = _sections(inventory, known), set(), []
-    for section in expected:
-        names = [_key(name) for name in [section["label"], *section.get("aliases", [])]]
-        scored = [(max(_similar(name, candidate["key"]) for name in names) + (0.05 if section.get("number") and section["number"] == candidate["number"] else 0), index) for index, candidate in enumerate(found) if index not in used]
-        score, index = max(scored, default=(0.0, -1))
+    structure = _structure(prd_source, inventory, inline_text)
+    found, sections = _sections(structure, known), []
+    # Assign globally best-first so a generic heading cannot take a closer match's slot.
+    pairs = sorted(((max(_similar(name, candidate["key"]) for name in [_key(n) for n in [section["label"], *section.get("aliases", [])]]) + (0.05 if section.get("number") and section["number"] == candidate["number"] else 0), position, index)
+                    for position, section in enumerate(expected) for index, candidate in enumerate(found)), key=lambda pair: (-pair[0], pair[1], pair[2]))
+    assigned: dict[int, int] = {}
+    for score, position, index in pairs:
+        if score >= 0.82 and position not in assigned and index not in assigned.values(): assigned[position] = index
+    used = set(assigned.values())
+    for position, section in enumerate(expected):
         rule = section["rule"]
-        if score < 0.82:
+        if position not in assigned:
             sections.append({"kind": "section", "id": section["id"], "label": section["label"], "rule": rule, "status": "missing", "result": _result(rule, "missing"), "matched_heading": None, "source_refs": []}); continue
-        used.add(index); candidate = found[index]
+        candidate = found[assigned[position]]
         status, content = ("filled", []) if rule == "heading" else _section_status(candidate, section)
         texts = [item["text"] for item in content]
         flags = _quality_flags(texts, section) if texts and status in {"filled", "incomplete"} else []
@@ -235,7 +306,7 @@ def compare(template: dict[str, Any], prd_source: str | Path, inline_text: str |
                 section["quality_flags"].append(f"duplicate_of:{other['id']}")
                 if section["result"] == "pass": section["result"] = "warn"
                 break
-    tables, prd_tables = [], _tables(inventory)
+    tables, prd_tables = [], _tables(structure)
     for table in template.get("tables", []):
         keys = [_key(column) for column in table["columns"]]
         def overlap(candidate: dict[str, Any]) -> list[str]:
@@ -243,16 +314,16 @@ def compare(template: dict[str, Any], prd_source: str | Path, inline_text: str |
         best = max(prd_tables, key=lambda candidate: len(overlap(candidate)), default=None)
         matched = overlap(best) if best else []
         if not best or len(matched) < max(1, len(keys) / 2):
-            tables.append({"kind": "table", "id": table["id"], "label": table.get("label", table["id"]), "status": "missing", "result": "fail", "missing_columns": table["columns"], "data_rows": 0, "source_refs": []}); continue
+            tables.append({"kind": "table", "id": table["id"], "label": table.get("label", table["id"]), "rule": table.get("rule", "required"), "status": "missing", "result": "pass" if table.get("rule") == "optional" else "fail", "missing_columns": table["columns"], "data_rows": 0, "source_refs": []}); continue
         rows = [row for row in best["rows"] if any(cell and not PLACEHOLDER.match(cell) for cell in row["cells"])]
         missing = [column for column in table["columns"] if column not in matched]
         status = "empty" if not rows else "partial" if missing else "filled"
-        tables.append({"kind": "table", "id": table["id"], "label": table.get("label", table["id"]), "status": status, "result": "pass" if status == "filled" else "warn" if status == "partial" else "fail", "missing_columns": missing, "data_rows": len(rows), "guidance": table["columns"], "quality_flags": [], "excerpt": " / ".join(row["text"] for row in rows)[:1500], "locator": best["locator"], "source_refs": [best["ref"], *[row["id"] for row in rows[:5]]]})
+        tables.append({"kind": "table", "id": table["id"], "label": table.get("label", table["id"]), "rule": table.get("rule", "required"), "status": status, "result": "pass" if status == "filled" else "warn" if status == "partial" else "fail", "missing_columns": missing, "data_rows": len(rows), "guidance": table["columns"], "quality_flags": [], "excerpt": " / ".join(row["text"] for row in rows)[:1500], "locator": best["locator"], "source_refs": [best["ref"], *[row["id"] for row in rows[:5]]]})
     actual = _entity_types(data)
     entities = [{"type": kind, "template_count": count, "prd_count": actual.get(kind, 0), "result": "pass" if actual.get(kind) else "warn"} for kind, count in sorted(template.get("entity_types", {}).items())]
     extra = [{"label": section["label"], "locator": section["locator"]} for index, section in enumerate(found) if index not in used]
     # Completeness counts the components the template demands: required/justify sections and tables.
-    components = [item for item in sections if item["rule"] in {"required", "justify"}] + tables
+    components = [item for item in sections if item["rule"] in {"required", "justify"}] + [item for item in tables if item["rule"] != "optional" or item["status"] != "missing"]
     filled = [item for item in components if BUCKETS[item["status"]] in {"complete", "partial"}]
     for item in components:
         if item not in filled: item.pop("excerpt", None)
