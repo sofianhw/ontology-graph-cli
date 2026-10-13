@@ -90,6 +90,11 @@ class SkillDistributionTests(unittest.TestCase):
             run("ask", str(output), "Which requirements are not implemented by a user story?")
             run("build", str(draft), str(work / "canonical-output"))
             run("merge", str(output), str(draft), str(work / "merged-output"))
+            template = work / "template.md"
+            template.write_text("# PRD Title\n## Background\n[Describe the context]\n## User Stories\nUS-01 - Example\n", encoding="utf-8")
+            run("extract-template", str(template), str(work / "template_spec.json"))
+            run("compare-template", str(work / "template_spec.json"), str(source), "--output", str(work / "template_report.md"))
+            self.assertTrue((work / "template_report.md").is_file())
 
     def test_invalid_target_is_rejected(self):
         with self.assertRaises(ValueError):

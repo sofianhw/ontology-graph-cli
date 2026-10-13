@@ -230,6 +230,48 @@ uv run ontograph validate graph_data.json
 uv run ontograph build graph_data.json outputs/prd
 ```
 
+## Compare a PRD with a template
+
+Check whether a PRD follows your team's PRD template. The template can be any PDF,
+DOCX, Markdown, or text file; download a Google Doc as `.docx` first.
+
+```sh
+uv run ontograph compare-template prd-template.docx my-prd.pdf
+uv run ontograph compare-template prd-template.docx my-prd.pdf --output report.md
+uv run ontograph compare-template prd-template.docx my-prd.pdf --output report.json
+```
+
+Each template section is graded with a source location in the PRD:
+
+| Status | Meaning |
+| --- | --- |
+| `filled` | The section has real content. |
+| `placeholder` | Only template prompts such as `[Name]` or unchanged guidance text. |
+| `empty` / `missing` | The heading has no content, or no matching heading was found. |
+| `not_applicable` | Marked N/A with a reason, e.g. `N/A - no money movement`. |
+| `not_applicable_unjustified` | Marked N/A, `None`, or similar with no reason. |
+| `incomplete` | Contains `TBD`, `TODO`, or `to be confirmed`. |
+
+Rules come from the template wording. Sections whose heading or guidance says
+"(if any)", "not applicable", "justification", or "do not leave it blank" may be N/A
+with a reason; "(optional)" sections may be absent; other sections are required.
+Template tables are checked for their header columns and at least one filled row, and
+the entity types extracted from the template (user stories, stakeholders, and so on)
+are compared with those found in the PRD.
+
+To curate a template once and reuse it, write it out as an editable spec. Adjust
+`rule` (`required`, `justify`, `optional`, `heading`), add `aliases` for headings that
+PRDs commonly rename, then compare against the spec:
+
+```sh
+uv run ontograph extract-template prd-template.docx prd-template.spec.json
+uv run ontograph compare-template prd-template.spec.json my-prd.pdf
+```
+
+Headings are detected from DOCX heading styles, Markdown `#` headings, and numbered
+lines. Unstyled PDF headings are recognized only when they match a template section,
+so a styled DOCX or a curated spec gives the most reliable results.
+
 ## Merge graph data
 
 Extend a previously built graph with another canonical JSON file:
@@ -259,7 +301,7 @@ in the prior graph.
 uv run --extra full python -m unittest discover -s tests -v
 ```
 
-The test suite covers template extraction, source evidence, candidate-edge GraphML
+The test suite covers template extraction, template comparison, source evidence, candidate-edge GraphML
 export, missing credentials, and malformed LLM replies.
 
 ## License

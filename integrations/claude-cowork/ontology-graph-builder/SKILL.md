@@ -81,6 +81,21 @@ Never merely give the user a command or a `.rq` file to run. Save a reproducible
 file only if the user explicitly requests it. Do not send graph content to an external
 service merely to answer a graph-backed question.
 
+## Compare a PRD with a template
+
+When the user asks whether a PRD follows a template, run:
+
+```sh
+<standalone-runner> compare-template <template_path> <prd_path> --output <output_dir>/template_report.md
+```
+
+The template may be a PDF, DOCX, Markdown, or text file, or a spec JSON created with
+`extract-template <template_path> <spec.json>`. Summarize the score, then list failing
+sections and tables first with their PRD locations, then warnings. Describe a
+`missing` result as "no matching heading found", since the PRD may have renamed the
+section; offer to add an alias to a curated spec rather than asserting the content is
+absent.
+
 ## Other CLI modes
 
 - Use `extract` for a deterministic draft without graph artifacts.
