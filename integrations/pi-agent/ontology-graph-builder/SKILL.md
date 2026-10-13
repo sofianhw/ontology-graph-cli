@@ -96,6 +96,12 @@ sections and tables first with their PRD locations, then warnings. Describe a
 section; offer to add an alias to a curated spec rather than asserting the content is
 absent.
 
+To judge whether content is legitimate, write the report as `.json` and read each
+section's `quality_flags` and `excerpt`. You are the content reviewer: for each filled
+section, decide whether the excerpt is a specific, credible answer to what the template
+section asks for, and say which sections look vague, off-topic, or boilerplate and why.
+Do not use the CLI's external model review option from this skill.
+
 ## Other CLI modes
 
 - Use `extract` for a deterministic draft without graph artifacts.

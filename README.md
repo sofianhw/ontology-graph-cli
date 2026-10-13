@@ -259,6 +259,34 @@ Template tables are checked for their header columns and at least one filled row
 the entity types extracted from the template (user stories, stakeholders, and so on)
 are compared with those found in the PRD.
 
+### Content quality
+
+A section can be filled without being a real answer. Filled sections also get
+deterministic `quality_flags`:
+
+| Flag | Meaning | Result |
+| --- | --- | --- |
+| `filler_text` | Lorem ipsum, `asdf`, `same as above`, `coming soon`, and similar. | fail |
+| `gibberish` | Mostly vowel-less non-words. | fail |
+| `too_short` | A required section with fewer than four words. | warn |
+| `reference_only` | Only `see Figma`, `refer to ...`, or a bare link. | warn |
+| `copies_guidance` | Lightly edited template guidance. | warn |
+| `repetitive` | The same few words repeated. | warn |
+| `duplicate_of:<id>` | The same text pasted under another section. | warn |
+
+To judge whether the content genuinely answers what each template section asks,
+add an OpenAI-compatible model. The model labels each filled section `legit`, `weak`,
+`off_topic`, or `filler` with a short reason, and anything other than `legit` becomes
+a warning. **This sends PRD section excerpts (up to 1,500 characters each) and the
+template guidance to the model endpoint**, so use it only for documents you may share
+with that provider. Without `OPENAI_API_KEY`, the review is skipped and the
+deterministic report is still produced.
+
+```sh
+OPENAI_API_KEY=... uv run ontograph compare-template prd-template.docx my-prd.pdf \
+  --llm-model gpt-4.1-mini --output report.md
+```
+
 To curate a template once and reuse it, write it out as an editable spec. Adjust
 `rule` (`required`, `justify`, `optional`, `heading`), add `aliases` for headings that
 PRDs commonly rename, then compare against the spec:

@@ -194,6 +194,8 @@ def parser() -> argparse.ArgumentParser:
     compare_p = commands.add_parser("compare-template", help="compare a PRD source against a template document or template spec")
     compare_p.add_argument("template", help="template PDF/DOCX/Markdown/text, or a spec JSON from extract-template"); compare_p.add_argument("prd")
     compare_p.add_argument("--output", help="write the report to a .md or .json file instead of printing it")
+    compare_p.add_argument("--llm-model", help="OpenAI-compatible model to judge whether filled sections are genuine answers; sends PRD section excerpts")
+    compare_p.add_argument("--llm-base-url", help="OpenAI-compatible API base URL; defaults to OPENAI_BASE_URL or OpenAI")
     return result
 
 
@@ -244,7 +246,7 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Created template spec: {target} ({len(spec['sections'])} sections, {len(spec['tables'])} tables)")
             print("Review rules and add aliases before comparing PRDs against it.")
         elif args.command == "compare-template":
-            result = compare_template(load_template(args.template), args.prd)
+            result = compare_template(load_template(args.template), args.prd, model=args.llm_model, base_url=args.llm_base_url)
             if not args.output: print(template_report(result), end="")
             else:
                 target = Path(args.output); target.parent.mkdir(parents=True, exist_ok=True)

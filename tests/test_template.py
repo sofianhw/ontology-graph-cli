@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -110,6 +111,50 @@ class TemplateComparisonTests(unittest.TestCase):
         with redirect_stdout(StringIO()) as printed:
             main(["compare-template", str(self.template), str(self.prd)])
         self.assertIn("# Template comparison: prd.md", printed.getvalue())
+
+    def test_quality_flags_catch_filled_but_illegitimate_content(self):
+        weak = self.work / "weak.md"
+        weak.write_text("""# Weak PRD
+### Background
+Users wait two days for transfers today and it hurts retention badly.
+### Problem Statement
+Users wait two days for transfers today and it hurts retention badly.
+## 6.6 Risk Requirements
+See Figma
+## 6.7 Fraud Requirements
+xkcd brrrt pfft zzzt qwrtp
+## Out of scope
+asdf
+""", encoding="utf-8")
+        result = compare(template_spec(self.template), weak)
+        sections = {section["id"]: section for section in result["sections"]}
+        self.assertEqual(sections["background"]["quality_flags"], [])
+        self.assertEqual(sections["problem_statement"]["quality_flags"], ["duplicate_of:background"])
+        self.assertEqual(sections["problem_statement"]["result"], "warn")
+        self.assertIn("reference_only", sections["risk_requirements"]["quality_flags"])
+        self.assertIn("gibberish", sections["fraud_requirements"]["quality_flags"])
+        self.assertEqual(sections["out_of_scope"]["result"], "fail")
+        self.assertIn("filler_text", sections["out_of_scope"]["quality_flags"])
+        self.assertEqual(result["summary"]["quality_flagged"], 4)
+
+    def test_llm_review_marks_weak_sections_and_ignores_unknown_ids(self):
+        content = {"reviews": [{"id": "background", "verdict": "weak", "reason": "Too generic"}, {"id": "nope", "verdict": "legit"}, {"id": "risk_requirements", "verdict": "bogus"}]}
+        response = MagicMock(); response.read.return_value = json.dumps({"choices": [{"message": {"content": json.dumps(content)}}]}).encode(); response.__enter__.return_value = response
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}, clear=True), patch("ontology_graph_cli.template.urllib.request.urlopen", return_value=response) as urlopen:
+            result = compare(template_spec(self.template), self.prd, model="test-model", base_url="https://example.test/v1")
+        sent = json.loads(json.loads(urlopen.call_args.args[0].data)["messages"][1]["content"])
+        self.assertIn("background", [section["id"] for section in sent["sections"]])
+        self.assertNotIn("fraud_requirements", [section["id"] for section in sent["sections"]])
+        background = next(s for s in result["sections"] if s["id"] == "background")
+        self.assertEqual((background["llm_review"]["verdict"], background["result"]), ("weak", "warn"))
+        self.assertNotIn("llm_review", next(s for s in result["sections"] if s["id"] == "risk_requirements"))
+        self.assertIn("LLM: weak - Too generic", report(result))
+
+    def test_llm_review_without_credentials_keeps_deterministic_result(self):
+        with patch.dict("os.environ", {}, clear=True):
+            result = compare(template_spec(self.template), self.prd, model="test-model")
+        self.assertIn("OPENAI_API_KEY", result["notes"][0])
+        self.assertEqual(result["summary"]["fail"], 3)
 
 
 if __name__ == "__main__":
