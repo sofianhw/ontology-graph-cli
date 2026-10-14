@@ -14,6 +14,7 @@ from rdflib import Graph
 
 from .core import build, load_data, merge, validate_data
 from .prd import build_prd, extract_prd, report as prd_report
+from .template import compare as compare_template, load_reviews, load_template, report as template_report, template_spec
 
 
 def _load_output(output_dir: str):
@@ -188,6 +189,15 @@ def parser() -> argparse.ArgumentParser:
     ask.add_argument("output_dir"); ask.add_argument("question"); ask.add_argument("--limit", type=int, default=25)
     ask.add_argument("--llm-model", help="OpenAI-compatible model to explain compact graph evidence")
     ask.add_argument("--llm-base-url", help="OpenAI-compatible API base URL; defaults to OPENAI_BASE_URL or OpenAI")
+    template_p = commands.add_parser("extract-template", help="derive an editable template spec JSON from a PRD template document")
+    template_p.add_argument("template", help="template document, or `default` for the built-in template"); template_p.add_argument("output", help="template spec JSON path")
+    compare_p = commands.add_parser("compare-template", help="compare a PRD source against a template document or template spec")
+    compare_p.add_argument("paths", nargs="+", metavar="[template] prd", help="optional template PDF/DOCX/Markdown/text or spec JSON (defaults to the built-in template), then the PRD")
+    compare_p.add_argument("--output", help="write the report to a .md or .json file instead of printing it")
+    compare_p.add_argument("--llm-model", help="OpenAI-compatible model to judge whether filled sections are genuine answers; sends PRD section excerpts")
+    compare_p.add_argument("--llm-base-url", help="OpenAI-compatible API base URL; defaults to OPENAI_BASE_URL or OpenAI")
+    compare_p.add_argument("--reviews", help="JSON verdicts {reviews:[{id, verdict, reason}]} from a reviewing agent, keyed by each component's review_id")
+    compare_p.add_argument("--reviewer", default="agent", help="name shown for --reviews verdicts")
     return result
 
 
@@ -233,6 +243,23 @@ def main(argv: list[str] | None = None) -> None:
             if args.limit < 1: raise ValueError("--limit must be at least 1")
             result = _ask_with_llm(args.output_dir, args.question, args.limit, args.llm_model, args.llm_base_url) if args.llm_model else _ask(args.output_dir, args.question, args.limit)
             print(json.dumps(result, indent=2))
+        elif args.command == "extract-template":
+            spec = template_spec(args.template); target = Path(args.output); target.parent.mkdir(parents=True, exist_ok=True); target.write_text(json.dumps(spec, indent=2), encoding="utf-8")
+            print(f"Created template spec: {target} ({len(spec['sections'])} sections, {len(spec['tables'])} tables)")
+            print("Review rules and add aliases before comparing PRDs against it.")
+        elif args.command == "compare-template":
+            if len(args.paths) > 2: raise ValueError("compare-template takes at most two paths: [template] prd")
+            template_path, prd_path = (None, args.paths[0]) if len(args.paths) == 1 else args.paths
+            result = compare_template(load_template(template_path), prd_path, model=args.llm_model, base_url=args.llm_base_url, reviews=load_reviews(args.reviews) if args.reviews else None, reviewer=args.reviewer)
+            if not args.output: print(template_report(result), end="")
+            else:
+                target = Path(args.output); target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(json.dumps(result, indent=2) if target.suffix.casefold() == ".json" else template_report(result), encoding="utf-8")
+                done, content = result["summary"]["completeness"], result["summary"]["content"]
+                print(f"Completeness: {done['complete']['percent']:g}% complete, {done['missing']['percent']:g}% missing ({done['complete']['count']} of {done['total']} components)")
+                if done["missing"]["components"]: print("Missing: " + ", ".join(done["missing"]["components"]))
+                print(f"Content ({content['reviewed_by']}): " + ", ".join(f"{name} {content[name]['count']}" for name in ("legit", "no_issue_found", "weak", "off_topic", "placeholder") if content[name]["count"]))
+                print(f"Report written to {target}")
         else: print(json.dumps(_query(args), indent=2))
     except (ValueError, KeyError, nx.NetworkXException, OSError) as error:
         print(f"Error: {error}", file=sys.stderr); raise SystemExit(2)

@@ -230,6 +230,108 @@ uv run ontograph validate graph_data.json
 uv run ontograph build graph_data.json outputs/prd
 ```
 
+## Compare a PRD with a template
+
+Check whether a PRD follows your team's PRD template. The template can be any PDF,
+DOCX, Markdown, or text file; download a Google Doc as `.docx` first. Leave the
+template out to use the built-in, organization-neutral PRD template: change log,
+sign-offs, general overview, requirements 6.1-6.12 (business, regulatory, audit trail,
+feature flag, operational, risk, fraud, data protection, reconciliation, roll-out,
+event trackers, CRM), dependencies, NFRs, flow diagram, out of scope, user stories, and
+security assessment.
+
+```sh
+uv run ontograph compare-template my-prd.docx
+uv run ontograph compare-template prd-template.docx my-prd.pdf
+uv run ontograph compare-template prd-template.docx my-prd.pdf --output report.md
+uv run ontograph compare-template prd-template.docx my-prd.pdf --output report.json
+```
+
+The report has two parts:
+
+1. **Completeness** counts the components the template demands (required sections,
+   sections that may be N/A with a reason, and tables). It shows the percentage that are
+   complete, partially filled, present but empty or placeholder, and missing, and names
+   the components in each bucket.
+2. **Content check** looks at the filled components and labels each one `placeholder`,
+   `weak`, `off_topic`, or `legit`. Without `--llm-model` this uses the automatic flags
+   below, so a component with no red flags is reported as "not judged" rather than
+   legit.
+
+Each template section is graded with a source location in the PRD:
+
+| Status | Meaning |
+| --- | --- |
+| `filled` | The section has real content. |
+| `placeholder` | Only template prompts such as `[Name]` or unchanged guidance text. |
+| `empty` / `missing` | The heading has no content, or no matching heading was found. |
+| `not_applicable` | Marked N/A with a reason, e.g. `N/A - no money movement`. |
+| `not_applicable_unjustified` | Marked N/A, `None`, or similar with no reason. |
+| `incomplete` | Contains `TBD`, `TODO`, or `to be confirmed`. |
+
+Rules come from the template wording. Sections whose heading or guidance says
+"(if any)", "not applicable", "justification", or "do not leave it blank" may be N/A
+with a reason; "(optional)" sections may be absent; other sections are required.
+Template tables are checked for their header columns and at least one filled row, and
+the entity types extracted from the template (user stories, stakeholders, and so on)
+are compared with those found in the PRD.
+
+### Content quality
+
+A section can be filled without being a real answer. Filled sections also get
+deterministic `quality_flags`:
+
+| Flag | Meaning | Result |
+| --- | --- | --- |
+| `filler_text` | Lorem ipsum, `asdf`, `same as above`, `coming soon`, and similar. | fail |
+| `gibberish` | Mostly vowel-less non-words. | fail |
+| `too_short` | A required section with fewer than four words. | warn |
+| `reference_only` | Only `see Figma`, `refer to ...`, or a bare link. | warn |
+| `copies_guidance` | Lightly edited template guidance. | warn |
+| `repetitive` | The same few words repeated. | warn |
+| `duplicate_of:<id>` | The same text pasted under another section. | warn |
+
+To judge whether the content genuinely answers what each template section asks,
+add an OpenAI-compatible model. The model labels each filled component (sections and tables) `legit`, `weak`,
+`off_topic`, or `placeholder` with a short reason, and anything other than `legit` becomes
+a warning. **This sends PRD section excerpts (up to 1,500 characters each) and the
+template guidance to the model endpoint**, so use it only for documents you may share
+with that provider. Without `OPENAI_API_KEY`, the review is skipped and the
+deterministic report is still produced.
+
+```sh
+OPENAI_API_KEY=... uv run ontograph compare-template prd-template.docx my-prd.pdf \
+  --llm-model gpt-4.1-mini --output report.md
+```
+
+Verdicts can also come from a reviewer you run yourself, such as the agent using the
+bundled skill. Every filled component in the JSON report has a `review_id` and an
+`excerpt`. Write `{"reviews": [{"id": "<review_id>", "verdict": "legit", "reason": "..."}]}`
+and pass it with `--reviews`; nothing is sent over the network. The skill does this
+automatically on every template check.
+
+```sh
+uv run ontograph compare-template prd-template.docx my-prd.pdf --output check.json
+uv run ontograph compare-template prd-template.docx my-prd.pdf \
+  --reviews content_reviews.json --reviewer claude --output report.md
+```
+
+To curate a template once and reuse it, write it out as an editable spec. Adjust
+`rule` (`required`, `justify`, `optional`, `heading`), add `aliases` for headings that
+PRDs commonly rename, then compare against the spec:
+
+```sh
+uv run ontograph extract-template prd-template.docx prd-template.spec.json
+uv run ontograph extract-template default my-team.spec.json   # start from the built-in template
+uv run ontograph compare-template prd-template.spec.json my-prd.pdf
+```
+
+DOCX files are read in document order, including one-cell "answer boxes" and tables
+nested inside table cells, which many Google Docs templates use. Headings are detected
+from DOCX heading styles, Markdown `#` headings, numbered lines, and any line matching a
+template section or alias. Unstyled PDF headings are recognized only when they match a template section,
+so a styled DOCX or a curated spec gives the most reliable results.
+
 ## Merge graph data
 
 Extend a previously built graph with another canonical JSON file:
@@ -259,7 +361,7 @@ in the prior graph.
 uv run --extra full python -m unittest discover -s tests -v
 ```
 
-The test suite covers template extraction, source evidence, candidate-edge GraphML
+The test suite covers template extraction, template comparison, source evidence, candidate-edge GraphML
 export, missing credentials, and malformed LLM replies.
 
 ## License
